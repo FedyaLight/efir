@@ -78,7 +78,7 @@ def build():
             "alternateName": "Эфир", "url": canonical, "description": text["description"],
             "applicationCategory": "MultimediaApplication", "operatingSystem": "macOS, Windows, Linux, Android, Web",
             "softwareVersion": "1.3.2", "inLanguage": list(LOCALES.values()),
-            "license": f"{REPO}/blob/main/LICENSE", "codeRepository": REPO,
+            "license": f"{REPO}/blob/main/LICENSE", "sameAs": REPO,
             "downloadUrl": f"{REPO}/releases/latest", "image": f"{BASE}/assets/social.png",
             "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
             "author": {"@type": "Person", "name": "FedyaLight", "url": "https://github.com/FedyaLight"},

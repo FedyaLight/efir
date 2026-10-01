@@ -2,6 +2,9 @@
 name = "efir-desktop"
 version = "1.3.2"
 edition = "2021"
+license = "MIT"
+description = "Free teleprompter with remote control over local Wi-Fi"
+repository = "https://github.com/FedyaLight/efir"
 default-run = "efir"
 autobins = false
 build = "build.rs"
