@@ -1,0 +1,16 @@
+Vosk API 0.3.45 — Apache License 2.0
+https://github.com/alphacep/vosk-api/tree/v0.3.45
+Kaldi — Apache License 2.0; OpenFST — Apache License 2.0.
+https://github.com/kaldi-asr/kaldi
+https://www.openfst.org/
+
+Windows runtime dependencies (official Vosk distribution):
+libgcc_s_seh-1.dll, libstdc++-6.dll: GCC Runtime Library Exception 3.1
+https://www.gnu.org/licenses/gcc-exception-3.1.html
+libwinpthread-1.dll: mingw-w64 winpthreads, MIT license
+https://github.com/mingw-w64/mingw-w64/tree/master/mingw-w64-libraries/winpthreads
+
+Language models are installed by the user and have their own licenses.
+https://alphacephei.com/vosk/models
+
+Web assets and font licenses are in web/vendor/licenses and SOURCES.json.

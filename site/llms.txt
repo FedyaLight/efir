@@ -1,0 +1,29 @@
+# Efir
+
+> Free, open-source teleprompter with remote control for macOS, Windows, Linux and Android. Also called «Эфир» in Russian.
+
+Native applications serve the shared web interface over a local HTTP/WebSocket server.
+A phone joins by QR code over the same Wi-Fi. Local sessions do not need internet or WebRTC.
+The hosted browser application uses PeerJS/WebRTC and needs internet for connection setup.
+Android can read independently, host a session or join another host. Desktop applications open as controllers.
+
+Features include fullscreen reading, horizontal/vertical mirroring, synchronized preview,
+sections, speed controls, script storage, TXT/Markdown/DOCX import, portable backups and voice following.
+UI languages: English, Russian, Spanish, Simplified Chinese, Hindi and Arabic.
+
+Offline native speech depends on language support and installed models. Windows/Linux Vosk models are separate downloads.
+Local HTTP phone browsers cannot access the microphone. Use native recognition on the host.
+Current macOS binaries are ad hoc signed and not notarized by Apple. See the distribution guide for per-app opening instructions.
+The local server has one shared session and does not store scripts. Scripts are stored on devices.
+Efir's original source is MIT-licensed; dependencies retain their own licenses.
+
+## Links
+
+- [Project website](https://fedyalight.github.io/efir/)
+- [Browser app](https://fedyalight.github.io/efir/app/)
+- [Source and README](https://github.com/FedyaLight/efir)
+- [Downloads and checksums](https://github.com/FedyaLight/efir/releases/latest)
+- [Usage](https://github.com/FedyaLight/efir/blob/main/docs/usage.md)
+- [macOS installation and notarization](https://github.com/FedyaLight/efir/blob/main/docs/macos-distribution.md)
+- [Build instructions](https://github.com/FedyaLight/efir/blob/main/docs/development.md)
+- [Verification and limitations](https://github.com/FedyaLight/efir/blob/main/docs/verification.md)

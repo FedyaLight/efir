@@ -1,0 +1,9 @@
+[package]
+name = "efir-rust-server-harness"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+efir-desktop = { path = "../../desktop", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "signal", "macros"] }
+axum = "0.8"

@@ -1,0 +1,4 @@
+"CFBundleDisplayName" = "Efir";
+"NSLocalNetworkUsageDescription" = "يقدّم Efir الملقّن للأجهزة على شبكتك المحلية.";
+"NSMicrophoneUsageDescription" = "يُستخدم الميكروفون لمتابعة صوتك على هذا Mac.";
+"NSSpeechRecognitionUsageDescription" = "يتعرّف Efir على الكلام على هذا Mac دون إرسال الصوت إلى الإنترنت.";

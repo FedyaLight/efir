@@ -1,0 +1,4 @@
+"CFBundleDisplayName" = "Efir";
+"NSLocalNetworkUsageDescription" = "Efir serves the teleprompter to devices on your local network.";
+"NSMicrophoneUsageDescription" = "The microphone is used to follow your voice on this Mac.";
+"NSSpeechRecognitionUsageDescription" = "Efir recognizes speech on this Mac without sending audio to the internet.";

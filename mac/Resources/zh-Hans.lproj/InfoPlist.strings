@@ -1,0 +1,4 @@
+"CFBundleDisplayName" = "Efir";
+"NSLocalNetworkUsageDescription" = "Efir 为局域网中的设备提供提词器。";
+"NSMicrophoneUsageDescription" = "麦克风用于在此 Mac 上实现语音跟随。";
+"NSSpeechRecognitionUsageDescription" = "Efir 在此 Mac 上识别语音，不会将音频发送到互联网。";

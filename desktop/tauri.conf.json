@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Efir",
+  "version": "1.3.2",
+  "identifier": "app.efir.desktop",
+  "build": {
+    "frontendDist": "bootstrap"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null,
+      "capabilities": [
+        {
+          "identifier": "local-controller",
+          "description": "Only the controller on our local server",
+          "windows": [
+            "main"
+          ],
+          "local": false,
+          "remote": {
+            "urls": [
+              "http://localhost:*"
+            ]
+          },
+          "permissions": [
+            "allow-native"
+          ]
+        }
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "deb",
+      "appimage"
+    ],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "resources/web/": "web/",
+      "resources/speech/": "speech/"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "skip"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libayatana-appindicator3-1",
+          "libasound2"
+        ]
+      }
+    }
+  }
+}

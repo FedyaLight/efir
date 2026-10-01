@@ -1,0 +1,4 @@
+"CFBundleDisplayName" = "Efir";
+"NSLocalNetworkUsageDescription" = "Efir sirve el teleprónter a los dispositivos de tu red local.";
+"NSMicrophoneUsageDescription" = "El micrófono permite que el teleprónter siga tu voz en este Mac.";
+"NSSpeechRecognitionUsageDescription" = "Efir reconoce la voz en este Mac sin enviar audio a internet.";

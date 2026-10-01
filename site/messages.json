@@ -1,0 +1,368 @@
+{
+  "en": {
+    "name": "English",
+    "languages": "Language",
+    "title": "Efir — Free Teleprompter with Remote Control",
+    "description": "Free, open-source teleprompter for macOS, Windows, Linux and Android. Control a phone over Wi-Fi, read offline, mirror text and follow your voice.",
+    "heading": "A free teleprompter with remote control.",
+    "free": "Free & open source",
+    "intro": "Read your script on a phone while controlling it from your computer. Efir connects over local Wi-Fi, so you can record videos, give presentations or rehearse without internet.",
+    "open_app": "Open web app",
+    "download": "Download Efir",
+    "features_title": "Made for reading aloud",
+    "features": [
+      [
+        "Remote control over Wi-Fi",
+        "Scan the QR code on your computer. Text, speed, sections and reading position stay synchronized with your phone."
+      ],
+      [
+        "Read your way",
+        "Fullscreen, mirrored text for teleprompter glass, adjustable fonts, countdown and a controller preview with the same layout."
+      ],
+      [
+        "Follow your voice",
+        "Offline native speech recognition follows your words and can move back when you reread. Language support depends on installed models and your device."
+      ],
+      [
+        "Keep your scripts",
+        "Save a script library, import TXT, Markdown or DOCX, and export settings and scripts as a portable backup. Local sessions store scripts on your devices."
+      ]
+    ],
+    "start_title": "From script to screen",
+    "steps": [
+      "Open Efir on your computer. The controller opens immediately.",
+      "Connect your phone to the same Wi-Fi, then scan the Connect teleprompter QR code.",
+      "Paste or import your script. Set the font, speed and mirror, then press Play."
+    ],
+    "android": "Android also works on its own: edit and read on one device, or start a server for other phones. Tap the fullscreen text to play or pause; quick controls hide while playing.",
+    "requirements": "macOS 14+ (Apple Silicon and Intel); Windows 10/11 x64 with WebView2; Ubuntu 24.04+ x64/ARM64; Android 8+ with a recent System WebView. Extract the complete Windows ZIP before launching.",
+    "mac_warning": "The macOS download is ad hoc signed and is not notarized by Apple. After trying to open Efir, use System Settings → Privacy & Security → Open Anyway, then confirm Open. Only allow an app you trust.",
+    "instructions": "Mac installation instructions",
+    "release_notes": "Release notes",
+    "faq_title": "Questions before you start",
+    "guide": "User guide",
+    "faq": [
+      [
+        "Does Efir work without internet?",
+        "Yes, the native apps host a local HTTP/WebSocket session with bundled assets. Devices must share a network. The hosted web app uses WebRTC and needs internet for connection setup."
+      ],
+      [
+        "Can I use a phone as a teleprompter?",
+        "Yes. Android can read independently or host a session. A phone browser can also join the computer's local server. Fullscreen and horizontal/vertical mirroring are built in."
+      ],
+      [
+        "What if I use a VPN?",
+        "Enable Allow LAN in your VPN or exclude the browser from the tunnel. Guest Wi-Fi with device isolation can also block connections."
+      ],
+      [
+        "Does voice control work in a phone browser?",
+        "A local HTTP page cannot access the phone microphone. Use native speech on the host instead. On-device recognition requires a supported language/model; Vosk models for Windows and Linux are installed separately."
+      ]
+    ]
+  },
+  "ru": {
+    "name": "Русский",
+    "languages": "Язык",
+    "title": "Эфир — бесплатный суфлёр с удалённым управлением",
+    "description": "Бесплатный суфлёр для macOS, Windows, Linux и Android. Управляйте телефоном по Wi-Fi: офлайн, зеркальный текст и прокрутка за голосом. Открытый исходный код.",
+    "heading": "Бесплатный суфлёр. Телефон читает, вы управляете.",
+    "free": "Бесплатно · открытый исходный код",
+    "intro": "Читайте текст с телефона, управляя им с компьютера. «Эфир» соединяет устройства по локальному Wi-Fi: снимайте видео, выступайте и репетируйте без интернета.",
+    "open_app": "Открыть веб-версию",
+    "download": "Скачать Эфир",
+    "features_title": "Всё для чтения вслух",
+    "features": [
+      [
+        "Пульт по Wi-Fi",
+        "Отсканируйте QR-код на компьютере. Текст, скорость, разделы и позиция чтения синхронизируются с телефоном."
+      ],
+      [
+        "Настройте под себя",
+        "Полный экран, зеркальный текст для стекла суфлёра, выбор шрифтов, обратный отсчёт и предпросмотр с той же раскладкой текста."
+      ],
+      [
+        "Прокрутка за голосом",
+        "Нативное распознавание без интернета следует за речью и возвращает текст при перечитывании. Доступность языков зависит от устройства и установленных моделей."
+      ],
+      [
+        "Ваша библиотека",
+        "Сохраняйте сценарии, импортируйте TXT, Markdown и DOCX. Переносите тексты и настройки через резервные копии. В локальном режиме тексты хранятся на ваших устройствах."
+      ]
+    ],
+    "start_title": "От текста к записи",
+    "steps": [
+      "Запустите «Эфир» на компьютере — сразу откроется пульт.",
+      "Подключите телефон к тому же Wi-Fi и отсканируйте QR-код «Подключить суфлёр».",
+      "Вставьте или импортируйте текст. Настройте шрифт, скорость и отражение, затем нажмите Play."
+    ],
+    "android": "Android работает и самостоятельно: редактируйте и читайте на одном устройстве или запустите сервер для других телефонов. Тап по тексту на полном экране включает и останавливает прокрутку; быстрые настройки скрываются во время чтения.",
+    "requirements": "macOS 14+ (Apple Silicon и Intel); Windows 10/11 x64 с WebView2; Ubuntu 24.04+ x64/ARM64; Android 8+ с актуальным System WebView. Перед запуском на Windows распакуйте ZIP целиком.",
+    "mac_warning": "Версия для macOS подписана локально и не прошла нотариализацию Apple. После попытки открыть «Эфир» перейдите в Системные настройки → Конфиденциальность и безопасность → Всё равно открыть и подтвердите открытие. Разрешайте запуск только приложениям, которым доверяете.",
+    "instructions": "Установка на Mac",
+    "release_notes": "Описание релиза",
+    "faq_title": "Перед началом",
+    "guide": "Руководство",
+    "faq": [
+      [
+        "Суфлёр работает без интернета?",
+        "Да. Нативные приложения запускают локальный HTTP/WebSocket-сервер со встроенными ресурсами. Устройства должны находиться в одной сети. Веб-версия на сайте использует WebRTC и требует интернет для установки соединения."
+      ],
+      [
+        "Можно использовать телефон как суфлёр?",
+        "Да. Android умеет читать самостоятельно и раздавать суфлёр другим устройствам. Браузер телефона также подключается к локальному серверу компьютера. Есть полный экран, горизонтальное и вертикальное отражение."
+      ],
+      [
+        "Что делать с VPN?",
+        "Включите «Доступ к локальной сети / Allow LAN» в VPN или исключите браузер из туннеля. Гостевой Wi-Fi с изоляцией устройств тоже может блокировать соединение."
+      ],
+      [
+        "Можно слушать микрофон в браузере телефона?",
+        "На локальной HTTP-странице микрофон телефона недоступен. Используйте нативное распознавание на устройстве с пультом. Нужен поддерживаемый язык или модель; модели Vosk для Windows и Linux устанавливаются отдельно."
+      ]
+    ]
+  },
+  "es": {
+    "name": "Español",
+    "languages": "Idioma",
+    "title": "Efir — Teleprompter gratuito con control remoto",
+    "description": "Teleprompter gratuito y de código abierto para macOS, Windows, Linux y Android. Control por Wi-Fi, lectura sin internet, texto reflejado y seguimiento de voz.",
+    "heading": "Un teleprompter gratuito con control remoto.",
+    "free": "Gratis y de código abierto",
+    "intro": "Lee el guion en tu móvil y contrólalo desde el ordenador. Efir conecta por Wi-Fi local para grabar vídeos, presentar o ensayar sin internet.",
+    "open_app": "Abrir versión web",
+    "download": "Descargar Efir",
+    "features_title": "Pensado para leer en voz alta",
+    "features": [
+      [
+        "Control remoto por Wi-Fi",
+        "Escanea el QR del ordenador. El texto, la velocidad, las secciones y la posición se sincronizan con el móvil."
+      ],
+      [
+        "Lee a tu manera",
+        "Pantalla completa, texto reflejado para cristal de teleprompter, fuentes ajustables, cuenta atrás y vista previa con el mismo diseño."
+      ],
+      [
+        "Sigue tu voz",
+        "El reconocimiento nativo sin internet sigue tus palabras y retrocede al releer. Los idiomas disponibles dependen del dispositivo y los modelos instalados."
+      ],
+      [
+        "Guarda tus guiones",
+        "Biblioteca de guiones, importación TXT, Markdown y DOCX, y copias de seguridad portátiles. Las sesiones locales guardan los guiones en tus dispositivos."
+      ]
+    ],
+    "start_title": "Del guion a la pantalla",
+    "steps": [
+      "Abre Efir en el ordenador. El mando aparece de inmediato.",
+      "Conecta el móvil al mismo Wi-Fi y escanea el QR para conectar el teleprompter.",
+      "Pega o importa el guion. Ajusta fuente, velocidad y reflejo; pulsa Reproducir."
+    ],
+    "android": "Android también funciona solo: edita y lee en un dispositivo o inicia un servidor para otros móviles. Toca el texto a pantalla completa para reproducir o pausar; los controles se ocultan durante la lectura.",
+    "requirements": "macOS 14+ (Apple Silicon e Intel); Windows 10/11 x64 con WebView2; Ubuntu 24.04+ x64/ARM64; Android 8+ con System WebView reciente. Extrae todo el ZIP de Windows antes de abrirlo.",
+    "mac_warning": "La versión para macOS tiene firma ad hoc y no está notarizada por Apple. Tras intentar abrir Efir, ve a Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente y confirma Abrir. Permite solo aplicaciones de confianza.",
+    "instructions": "Instalación en Mac",
+    "release_notes": "Notas de la versión",
+    "faq_title": "Antes de empezar",
+    "guide": "Guía de uso",
+    "faq": [
+      [
+        "¿Funciona sin internet?",
+        "Sí. Las apps nativas alojan una sesión HTTP/WebSocket local con recursos incluidos. Los dispositivos deben compartir red. La versión web alojada usa WebRTC y necesita internet para establecer la conexión."
+      ],
+      [
+        "¿Puedo usar un móvil como teleprompter?",
+        "Sí. Android puede leer de forma independiente o alojar una sesión. El navegador de un móvil también puede conectarse al servidor local del ordenador. Incluye pantalla completa y reflejo horizontal y vertical."
+      ],
+      [
+        "¿Y si uso VPN?",
+        "Activa Allow LAN en la VPN o excluye el navegador del túnel. Una red Wi-Fi de invitados con aislamiento también puede bloquear la conexión."
+      ],
+      [
+        "¿Funciona el micrófono del navegador móvil?",
+        "Una página HTTP local no puede acceder al micrófono. Usa el reconocimiento nativo del anfitrión. Necesitas un idioma o modelo compatible; los modelos Vosk para Windows y Linux se instalan por separado."
+      ]
+    ]
+  },
+  "zh": {
+    "name": "中文",
+    "languages": "语言",
+    "title": "Efir — 支持远程控制的免费提词器",
+    "description": "适用于 macOS、Windows、Linux 和 Android 的免费开源提词器。通过 Wi-Fi 控制手机，支持离线阅读、镜像文字和语音跟随。",
+    "heading": "免费提词器。手机显示，远程控制。",
+    "free": "免费开源",
+    "intro": "用手机阅读稿件，用电脑控制进度。Efir 通过本地 Wi-Fi 连接设备，无需互联网即可录制视频、演讲或排练。",
+    "open_app": "打开网页版",
+    "download": "下载 Efir",
+    "features_title": "为朗读而设计",
+    "features": [
+      [
+        "Wi-Fi 远程控制",
+        "扫描电脑上的二维码。文字、速度、章节和阅读位置与手机保持同步。"
+      ],
+      [
+        "按需调整",
+        "全屏、适用于提词器玻璃的镜像文字、可调字体、倒计时，以及布局一致的控制端预览。"
+      ],
+      [
+        "跟随语音",
+        "本机离线语音识别跟随您的讲话，重读时可回退。语言支持取决于设备和已安装的模型。"
+      ],
+      [
+        "保存稿件",
+        "稿件库，TXT、Markdown 和 DOCX 导入，以及可移植备份。本地会话的稿件保存在您的设备上。"
+      ]
+    ],
+    "start_title": "开始阅读",
+    "steps": [
+      "在电脑上打开 Efir，直接进入控制界面。",
+      "将手机连接到同一 Wi-Fi，扫描连接提词器的二维码。",
+      "粘贴或导入稿件，设置字体、速度和镜像，然后开始播放。"
+    ],
+    "android": "Android 也能独立使用：在同一设备上编辑和阅读，或启动服务器连接其他手机。点击全屏文字可播放或暂停；播放时快捷控件会隐藏。",
+    "requirements": "macOS 14+（Apple Silicon 和 Intel）；Windows 10/11 x64，需 WebView2；Ubuntu 24.04+ x64/ARM64；Android 8+，需较新的 System WebView。Windows 启动前请完整解压 ZIP。",
+    "mac_warning": "macOS 版本使用临时签名，未经过 Apple 公证。尝试打开 Efir 后，进入系统设置 → 隐私与安全性 → 仍要打开，然后确认打开。仅允许您信任的应用。",
+    "instructions": "Mac 安装说明",
+    "release_notes": "发行说明",
+    "faq_title": "常见问题",
+    "guide": "使用指南",
+    "faq": [
+      [
+        "没有互联网能使用吗？",
+        "可以。原生应用通过本地 HTTP/WebSocket 会话提供内置资源。设备须在同一网络。托管的网页版使用 WebRTC，需要互联网来建立连接。"
+      ],
+      [
+        "手机可以当提词器吗？",
+        "可以。Android 能独立阅读或作为服务器。手机浏览器也能连接电脑的本地服务器，支持全屏和水平、垂直镜像。"
+      ],
+      [
+        "使用 VPN 怎么办？",
+        "在 VPN 中开启 Allow LAN（允许局域网访问），或将浏览器排除在隧道之外。开启设备隔离的访客 Wi-Fi 也可能阻止连接。"
+      ],
+      [
+        "手机浏览器能使用麦克风吗？",
+        "本地 HTTP 页面无法访问手机麦克风。请使用主机的原生语音识别，需要支持的语言或模型；Windows 和 Linux 的 Vosk 模型单独安装。"
+      ]
+    ]
+  },
+  "hi": {
+    "name": "हिन्दी",
+    "languages": "भाषा",
+    "title": "Efir — रिमोट कंट्रोल वाला मुफ़्त टेलीप्रॉम्प्टर",
+    "description": "macOS, Windows, Linux और Android के लिए मुफ़्त ओपन-सोर्स टेलीप्रॉम्प्टर। Wi-Fi रिमोट कंट्रोल, ऑफ़लाइन पढ़ना, मिरर टेक्स्ट और आवाज़ के साथ स्क्रॉल।",
+    "heading": "मुफ़्त टेलीप्रॉम्प्टर। फ़ोन पर पढ़ें, दूर से चलाएँ।",
+    "free": "मुफ़्त और ओपन सोर्स",
+    "intro": "फ़ोन पर स्क्रिप्ट पढ़ें और कंप्यूटर से उसे नियंत्रित करें। Efir स्थानीय Wi-Fi से जुड़ता है, इसलिए बिना इंटरनेट वीडियो रिकॉर्ड करें, प्रस्तुति दें या अभ्यास करें।",
+    "open_app": "वेब ऐप खोलें",
+    "download": "Efir डाउनलोड करें",
+    "features_title": "ज़ोर से पढ़ने के लिए",
+    "features": [
+      [
+        "Wi-Fi से रिमोट कंट्रोल",
+        "कंप्यूटर का QR कोड स्कैन करें। टेक्स्ट, गति, अनुभाग और पढ़ने की स्थिति फ़ोन के साथ सिंक रहते हैं।"
+      ],
+      [
+        "अपनी तरह पढ़ें",
+        "फ़ुलस्क्रीन, टेलीप्रॉम्प्टर ग्लास के लिए मिरर टेक्स्ट, फ़ॉन्ट सेटिंग, उलटी गिनती और समान लेआउट वाला पूर्वावलोकन।"
+      ],
+      [
+        "आवाज़ के साथ स्क्रॉल",
+        "ऑफ़लाइन नेटिव पहचान आपकी आवाज़ के साथ चलती है और दोबारा पढ़ने पर पीछे लौट सकती है। भाषा समर्थन डिवाइस और स्थापित मॉडल पर निर्भर है।"
+      ],
+      [
+        "स्क्रिप्ट सँभालें",
+        "स्क्रिप्ट लाइब्रेरी, TXT, Markdown और DOCX आयात तथा पोर्टेबल बैकअप। स्थानीय सत्र में स्क्रिप्ट आपके डिवाइस पर रहती हैं।"
+      ]
+    ],
+    "start_title": "स्क्रिप्ट से स्क्रीन तक",
+    "steps": [
+      "कंप्यूटर पर Efir खोलें। कंट्रोलर तुरंत खुलता है।",
+      "फ़ोन को उसी Wi-Fi से जोड़ें और टेलीप्रॉम्प्टर कनेक्शन का QR स्कैन करें।",
+      "स्क्रिप्ट पेस्ट या आयात करें। फ़ॉन्ट, गति और मिरर सेट करें, फिर चलाएँ।"
+    ],
+    "android": "Android अकेले भी काम करता है: एक डिवाइस पर संपादन और पढ़ना, या दूसरे फ़ोन के लिए सर्वर शुरू करें। फ़ुलस्क्रीन टेक्स्ट पर टैप करके चलाएँ या रोकें; चलते समय त्वरित कंट्रोल छिप जाते हैं।",
+    "requirements": "macOS 14+ (Apple Silicon और Intel); WebView2 के साथ Windows 10/11 x64; Ubuntu 24.04+ x64/ARM64; हाल के System WebView के साथ Android 8+। Windows पर पूरा ZIP निकालकर ही चलाएँ।",
+    "mac_warning": "macOS संस्करण पर ad hoc हस्ताक्षर है, Apple नोटराइज़ेशन नहीं है। Efir खोलने की कोशिश के बाद System Settings → Privacy & Security → Open Anyway चुनें, फिर Open की पुष्टि करें। केवल भरोसेमंद ऐप को अनुमति दें।",
+    "instructions": "Mac स्थापना निर्देश",
+    "release_notes": "रिलीज़ विवरण",
+    "faq_title": "शुरू करने से पहले",
+    "guide": "उपयोगकर्ता गाइड",
+    "faq": [
+      [
+        "क्या बिना इंटरनेट काम करता है?",
+        "हाँ। नेटिव ऐप स्थानीय HTTP/WebSocket सत्र और शामिल संसाधनों का उपयोग करते हैं। डिवाइस एक नेटवर्क पर होने चाहिए। होस्ट किया हुआ वेब ऐप WebRTC का उपयोग करता है और कनेक्शन बनाने के लिए इंटरनेट चाहिए।"
+      ],
+      [
+        "क्या फ़ोन को टेलीप्रॉम्प्टर बना सकते हैं?",
+        "हाँ। Android स्वतंत्र रूप से पढ़ सकता है या सत्र होस्ट कर सकता है। फ़ोन ब्राउज़र भी कंप्यूटर के स्थानीय सर्वर से जुड़ सकता है। फ़ुलस्क्रीन और क्षैतिज/ऊर्ध्वाधर मिरर उपलब्ध हैं।"
+      ],
+      [
+        "VPN हो तो क्या करें?",
+        "VPN में Allow LAN चालू करें या ब्राउज़र को टनल से बाहर रखें। डिवाइस आइसोलेशन वाला गेस्ट Wi-Fi भी कनेक्शन रोक सकता है।"
+      ],
+      [
+        "क्या फ़ोन ब्राउज़र का माइक्रोफ़ोन चलेगा?",
+        "स्थानीय HTTP पेज फ़ोन माइक्रोफ़ोन नहीं ले सकता। होस्ट पर नेटिव पहचान इस्तेमाल करें। समर्थित भाषा या मॉडल चाहिए; Windows और Linux के Vosk मॉडल अलग से स्थापित होते हैं।"
+      ]
+    ]
+  },
+  "ar": {
+    "name": "العربية",
+    "languages": "اللغة",
+    "title": "Efir — ملقّن مجاني مع تحكم عن بُعد",
+    "description": "ملقّن مجاني ومفتوح المصدر لأنظمة macOS وWindows وLinux وAndroid. تحكم بالهاتف عبر Wi-Fi، واقرأ دون إنترنت مع عكس النص وتتبع الصوت.",
+    "heading": "ملقّن مجاني. اقرأ من هاتفك وتحكم عن بُعد.",
+    "free": "مجاني ومفتوح المصدر",
+    "intro": "اقرأ النص من الهاتف وتحكم فيه من الكمبيوتر. يربط Efir الأجهزة عبر Wi-Fi المحلي لتسجيل الفيديو أو تقديم العروض أو التدريب دون إنترنت.",
+    "open_app": "افتح تطبيق الويب",
+    "download": "تنزيل Efir",
+    "features_title": "مصمم للقراءة بصوت عالٍ",
+    "features": [
+      [
+        "تحكم عن بُعد عبر Wi-Fi",
+        "امسح رمز QR على الكمبيوتر. يتزامن النص والسرعة والأقسام وموضع القراءة مع الهاتف."
+      ],
+      [
+        "اقرأ بطريقتك",
+        "ملء الشاشة، وعكس النص لزجاج الملقّن، وخطوط قابلة للتعديل، وعد تنازلي ومعاينة بنفس تخطيط النص."
+      ],
+      [
+        "يتبع صوتك",
+        "يتبع التعرف الأصلي دون إنترنت كلماتك ويمكنه الرجوع عند إعادة القراءة. دعم اللغات يعتمد على الجهاز والنماذج المثبتة."
+      ],
+      [
+        "احتفظ بنصوصك",
+        "مكتبة نصوص، واستيراد TXT وMarkdown وDOCX، ونسخ احتياطية قابلة للنقل. تُحفظ نصوص الجلسات المحلية على أجهزتك."
+      ]
+    ],
+    "start_title": "من النص إلى الشاشة",
+    "steps": [
+      "افتح Efir على الكمبيوتر. تظهر لوحة التحكم فورًا.",
+      "صل الهاتف بنفس Wi-Fi وامسح رمز QR الخاص بتوصيل الملقّن.",
+      "الصق النص أو استورده. اضبط الخط والسرعة والعكس ثم ابدأ التشغيل."
+    ],
+    "android": "يعمل Android بشكل مستقل أيضًا: حرر واقرأ على جهاز واحد، أو شغّل خادمًا لهواتف أخرى. المس النص في ملء الشاشة للتشغيل أو الإيقاف؛ تختفي أدوات التحكم السريعة أثناء التشغيل.",
+    "requirements": "macOS 14+ ‏(Apple Silicon وIntel)؛ Windows 10/11 x64 مع WebView2؛ Ubuntu 24.04+ x64/ARM64؛ Android 8+ مع System WebView حديث. استخرج ملف ZIP الخاص بـWindows كاملًا قبل التشغيل.",
+    "mac_warning": "نسخة macOS موقعة بتوقيع ad hoc ولم تحصل على توثيق Apple. بعد محاولة فتح Efir، انتقل إلى إعدادات النظام ← الخصوصية والأمان ← فتح على أي حال، ثم أكد الفتح. اسمح فقط بتطبيق تثق به.",
+    "instructions": "تعليمات التثبيت على Mac",
+    "release_notes": "ملاحظات الإصدار",
+    "faq_title": "قبل أن تبدأ",
+    "guide": "دليل المستخدم",
+    "faq": [
+      [
+        "هل يعمل دون إنترنت؟",
+        "نعم. تستضيف التطبيقات الأصلية جلسة HTTP/WebSocket محلية بموارد مضمّنة. يجب أن تشترك الأجهزة في الشبكة. يستخدم تطبيق الويب المستضاف WebRTC ويحتاج إلى الإنترنت لإنشاء الاتصال."
+      ],
+      [
+        "هل يمكن استخدام الهاتف كملقّن؟",
+        "نعم. يمكن لـAndroid القراءة بشكل مستقل أو استضافة جلسة. يمكن لمتصفح الهاتف أيضًا الاتصال بالخادم المحلي للكمبيوتر. يتوفر ملء الشاشة والعكس الأفقي والعمودي."
+      ],
+      [
+        "ماذا لو استخدمت VPN؟",
+        "فعّل Allow LAN في الـVPN أو استثنِ المتصفح من النفق. قد تمنع شبكة Wi-Fi للضيوف ذات عزل الأجهزة الاتصال أيضًا."
+      ],
+      [
+        "هل يعمل ميكروفون متصفح الهاتف؟",
+        "لا تستطيع صفحة HTTP المحلية الوصول إلى ميكروفون الهاتف. استخدم التعرف الأصلي على الجهاز المضيف. تحتاج إلى لغة أو نموذج مدعوم؛ تُثبّت نماذج Vosk لـWindows وLinux بشكل منفصل."
+      ]
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<rect width="1200" height="630" fill="#0d1015"/>
+<g transform="translate(72 70) scale(.24)"><rect width="512" height="512" rx="112" fill="#0b0a09"/><rect x="72" y="150" width="300" height="34" rx="17" fill="#f1ebe1" opacity=".35"/><rect x="0" y="222" width="512" height="68" fill="#ff4b3e" opacity=".18"/><rect x="72" y="239" width="368" height="34" rx="17" fill="#ffb547"/><rect x="72" y="328" width="240" height="34" rx="17" fill="#f1ebe1" opacity=".35"/><path d="M0 222l44 34-44 34z" fill="#ff4b3e"/><path d="M512 222l-44 34 44 34z" fill="#ff4b3e"/><circle cx="420" cy="96" r="26" fill="#ff4b3e"/></g>
+<g fill="#f0f2f5" font-family="Arial, sans-serif">
+<text x="220" y="154" font-size="66" font-weight="700">Efir</text>
+<text x="72" y="305" font-size="64" font-weight="700">Free teleprompter.</text>
+<text x="72" y="386" font-size="64" font-weight="700">Remote control over Wi-Fi.</text>
+<text x="72" y="473" font-size="28" fill="#bdc6d1">Offline sessions · Mirror text · Voice following</text>
+<text x="72" y="558" font-size="26" fill="#a9d8ff">macOS · Windows · Linux · Android · Web</text>
+</g></svg>

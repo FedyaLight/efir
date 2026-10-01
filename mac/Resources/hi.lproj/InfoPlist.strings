@@ -1,0 +1,4 @@
+"CFBundleDisplayName" = "Efir";
+"NSLocalNetworkUsageDescription" = "Efir आपके स्थानीय नेटवर्क के डिवाइसों को टेलीप्रॉम्प्टर उपलब्ध कराता है।";
+"NSMicrophoneUsageDescription" = "इस Mac पर आवाज़ से टेलीप्रॉम्प्टर चलाने के लिए माइक्रोफ़ोन चाहिए।";
+"NSSpeechRecognitionUsageDescription" = "Efir इस Mac पर बोली पहचानता है और ऑडियो इंटरनेट पर नहीं भेजता।";

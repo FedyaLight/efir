@@ -1,0 +1,4 @@
+"CFBundleDisplayName" = "Эфир";
+"NSLocalNetworkUsageDescription" = "Эфир раздаёт суфлёр устройствам в вашей локальной сети.";
+"NSMicrophoneUsageDescription" = "Микрофон нужен для ведения суфлёра голосом на этом Mac.";
+"NSSpeechRecognitionUsageDescription" = "Эфир распознаёт речь на этом Mac без отправки аудио в интернет.";

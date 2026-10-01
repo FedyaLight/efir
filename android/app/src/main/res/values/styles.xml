@@ -1,0 +1,8 @@
+<resources>
+    <style name="EfirTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item><item name="android:colorAccent">#C9FF62</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowActionModeOverlay">true</item><item name="android:windowBackground">#101210</item>
+        <item name="android:statusBarColor">#101210</item><item name="android:navigationBarColor">#101210</item>
+    </style>
+</resources>

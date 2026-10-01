@@ -1,0 +1,11 @@
+# Preserve upstream files, including license whitespace.
+mac/Vendor/** -whitespace linguist-vendored=true
+web/vendor/** -whitespace linguist-vendored=true
+android/app/src/main/java/fi/iki/elonen/** -whitespace linguist-vendored=true
+android/app/src/main/assets/licenses/** -whitespace
+desktop/licenses/** -whitespace
+android/gradlew* -whitespace linguist-generated=true
+mac/Efir.xcodeproj/** linguist-generated=true
+desktop/Cargo.lock linguist-generated=true
+desktop/package-lock.json linguist-generated=true
+site/social.png linguist-generated=true

@@ -1,0 +1,73 @@
+name: Efir
+options:
+  bundleIdPrefix: app.efir
+  deploymentTarget:
+    macOS: '14.0'
+packages:
+  FlyingFox:
+    path: Vendor/FlyingFox
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    MACOSX_DEPLOYMENT_TARGET: '14.0'
+    CODE_SIGN_IDENTITY: '-'
+    CODE_SIGN_STYLE: Manual
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  configs:
+    Release:
+      ARCHS: 'arm64 x86_64'
+      ONLY_ACTIVE_ARCH: NO
+      DEPLOYMENT_POSTPROCESSING: YES
+      STRIP_INSTALLED_PRODUCT: YES
+      STRIP_STYLE: non-global
+      COPY_PHASE_STRIP: YES
+targets:
+  Efir:
+    type: application
+    platform: macOS
+    sources:
+      - Sources
+      - Resources
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Эфир
+        CFBundleShortVersionString: '1.3.2'
+        CFBundleVersion: '6'
+        CFBundleDevelopmentRegion: ru
+        CFBundleLocalizations: ['ru', 'en', 'es', 'zh-Hans', 'hi', 'ar']
+        NSLocalNetworkUsageDescription: Эфир раздаёт суфлёр устройствам в вашей локальной сети.
+        NSBonjourServices: ['_efir._tcp']
+        NSMicrophoneUsageDescription: Микрофон нужен для ведения суфлёра голосом на этом Mac.
+        NSSpeechRecognitionUsageDescription: Эфир распознаёт речь на этом Mac без отправки аудио в интернет.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoadsInWebContent: true
+    entitlements:
+      path: Efir.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.server: true
+        com.apple.security.network.client: true
+        com.apple.security.device.audio-input: true
+        com.apple.security.files.user-selected.read-write: true
+    dependencies:
+      - package: FlyingFox
+    preBuildScripts:
+      - name: Copy web
+        script: |
+          set -eu
+          DEST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/web"
+          mkdir -p "$DEST"
+          /usr/bin/rsync -a --delete --delete-excluded --exclude='.*' --exclude='README.md' --exclude='netlify.toml' --exclude='peerjs.min.js' "$SRCROOT/../web/" "$DEST/"
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/web
+        basedOnDependencyAnalysis: false
+schemes:
+  Efir:
+    build:
+      targets:
+        Efir: all
+    run:
+      config: Debug

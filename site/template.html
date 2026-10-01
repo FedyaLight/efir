@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="$lang" dir="$direction">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>$title</title>
+  <meta name="description" content="$description">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <link rel="canonical" href="$canonical">
+  $alternates
+  <link rel="icon" href="$prefix/assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="$prefix/assets/style.css">
+  <meta name="theme-color" content="#0d1015">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Efir">
+  <meta property="og:title" content="$title">
+  <meta property="og:description" content="$description">
+  <meta property="og:url" content="$canonical">
+  <meta property="og:image" content="$base/assets/social.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">$schema</script>
+</head>
+<body>
+  <header>
+    <a class="brand" href="$prefix/" aria-label="Efir"><img src="$prefix/assets/icon.svg" width="36" height="36" alt="">Efir</a>
+    <nav aria-label="$languages">$language_links</nav>
+  </header>
+  <main>
+    <section class="hero">
+      <img src="$prefix/assets/icon.svg" width="96" height="96" alt="" fetchpriority="high">
+      <p class="eyebrow">$free</p>
+      <h1>$heading</h1>
+      <p class="intro">$intro</p>
+      <div class="actions"><a class="primary" href="$prefix/app/">$open_app <span aria-hidden="true">↗</span></a><a href="#downloads">$download <span aria-hidden="true">↓</span></a></div>
+      <p class="platforms">macOS · Windows · Linux · Android · Web</p>
+    </section>
+    <section aria-labelledby="features"><h2 id="features">$features_title</h2><div class="features">$features</div></section>
+    <section aria-labelledby="start"><h2 id="start">$start_title</h2><ol class="steps">$steps</ol><p class="note">$android</p></section>
+    <section aria-labelledby="downloads"><h2 id="downloads">$download</h2><div class="downloads">$downloads</div><p class="note">$requirements</p><aside>$mac_warning <a href="$repo/blob/main/docs/macos-distribution.md#opening-the-current-build">$instructions <span aria-hidden="true">↗</span></a></aside><p><a href="$repo/releases/latest">$release_notes</a> · <a href="$repo/releases/latest/download/Efir-1.3.2-SHA256.txt">SHA-256</a></p></section>
+    <section aria-labelledby="questions"><h2 id="questions">$faq_title</h2><dl>$faq</dl></section>
+  </main>
+  <footer><a href="$repo">GitHub</a><a href="$repo/blob/main/docs/usage.md">$guide</a><a href="$repo/blob/main/LICENSE">MIT</a><span>Efir 1.3.2 · © 2026 FedyaLight</span></footer>
+</body>
+</html>

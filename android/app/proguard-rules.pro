@@ -1,0 +1,2 @@
+-keepclassmembers class * extends android.webkit.WebChromeClient { public *; }
+-keepclassmembers class * extends android.webkit.WebViewClient { public *; }
