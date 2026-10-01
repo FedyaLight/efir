@@ -2,6 +2,8 @@
 
 # Efir — Free Teleprompter with Remote Control
 
+[![Build Efir](https://github.com/FedyaLight/efir/actions/workflows/build.yml/badge.svg)](https://github.com/FedyaLight/efir/actions/workflows/build.yml)
+
 A free, open-source teleprompter with a remote controller for macOS, Windows, Linux and Android.
 The computer serves the app over local Wi-Fi; a phone opens the reading screen
 from a QR code. The local session works without internet or WebRTC.

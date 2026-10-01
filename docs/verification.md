@@ -9,7 +9,7 @@ are in [tests/README.md](../tests/README.md).
 | Platform or boundary | Evidence and limits |
 | --- | --- |
 | macOS | Release xcodebuild; universal arm64/x86_64 executable; bundle integrity; direct controller launch; HTTP marker and relay |
-| Windows x64 | Release cross-build, runtime DLL and resource inspection; no Windows GUI run yet |
+| Windows x64 | Release cross-build and native MSVC/NSIS CI build, runtime DLL and resource inspection; no Windows GUI run yet |
 | Linux ARM64 | Release package; actual WebKitGTK, native IPC, fullscreen, language reload and connected Chromium reader |
 | Linux x64 | Release DEB and ELF inspection; no x64 GUI run yet |
 | Android API 35 | Actual Activity/WebView/service instrumentation, standalone, hosting and mode changes; release APK signing and launch |
@@ -37,8 +37,22 @@ scripts remain within two CSS pixels.
 
 macOS artifacts are ad hoc signed and **not notarized**. Windows artifacts have
 no Authenticode signature. See [macOS distribution](macos-distribution.md) before
-shipping a Developer ID release. GitHub Actions defines builds but has not run
-on GitHub for this repository.
+shipping a Developer ID release. Remote build results are available in
+[GitHub Actions](https://github.com/FedyaLight/efir/actions/workflows/build.yml).
+All five platform jobs passed in the [October 1 run](https://github.com/FedyaLight/efir/actions/runs/36852451392):
+macOS universal, Windows x64, Linux x64, Linux ARM64 and Android release/lint.
+The CI Android artifact is unsigned; the public release APK uses the local
+release key. A successful CI build does not replace the device checks below.
+
+## Published website
+
+The [project website](https://fedyalight.github.io/efir/) was checked on October 1,
+2026: six languages render without JavaScript at mobile, tablet and desktop
+widths. Internal links, downloads, canonical/language alternatives and structured
+data were inspected. The hosted browser files match `web/` byte for byte.
+Two independent Chromium profiles on the public HTTPS site synchronized a script
+through real WebRTC; reader links preserve the `/efir/app/` path. These are
+publication checks, not proof of search-engine indexing or ranking.
 
 ## Resource activity
 
