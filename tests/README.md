@@ -37,11 +37,13 @@ On macOS, `http://0.0.0.0:18765` can provide an insecure Chromium context for
 | --- | --- |
 | `relay.mjs` | MIME, ETag/HEAD, exact relay, no echo, ping/pong, fragmented messages |
 | `browser.mjs` | Sync, preview, reconnect, tap playback, mirror, voice, languages, backups, HTTP screen protection |
-| `hosting.mjs` | Static hosting without marker, real PeerJS broker and cross-profile WebRTC |
+| `hosting.mjs` | Static hosting without marker, real PeerJS broker, delayed cross-profile WebRTC, established link during broker loss |
 | `performance.mjs` | Actual frame, storage, transport and main-thread activity in Chromium |
 | `layout.mjs` | Six UI languages, light/dark, narrow/landscape/tablet/desktop, dialogs, icon-only exit and fullscreen labels |
 
-`hosting.mjs` needs internet for signaling. Local browser checks reject external
+`hosting.mjs` needs internet for signaling. It delays negotiation messages by 12
+seconds and checks that losing the broker preserves an established device link.
+These checks do not replace Safari/Android tests on separate physical devices. Local browser checks reject external
 requests. Browser bridge adapters check the shared JS contract; actual native
 implementations are exercised separately.
 

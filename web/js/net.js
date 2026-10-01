@@ -7,6 +7,7 @@
 
 import { store } from './store.js';
 import { localMode, nativeVoice } from './environment.js';
+import { rtcConfig, relayConfigured, rtcConfigError } from './rtc.js';
 
 let peerLibrary;
 function loadPeer() {
@@ -20,6 +21,7 @@ function loadPeer() {
 const PREFIX = 'efir-teleprompter-v1-';
 const HEARTBEAT = 2000;
 const STALE = 7000;
+const CONNECT_TIMEOUT = 30000;
 
 export class Room extends EventTarget {
   constructor(code, role, getHello) {
@@ -37,6 +39,8 @@ export class Room extends EventTarget {
     this.status = 'connecting';
     this.destroyed = false;
     this.brokerOk = false;
+    this.lastError = null;
+    this.lastIce = null;
 
     this.localMode = localMode;
     if (!localMode) this._startBroadcast();
@@ -66,6 +70,20 @@ export class Room extends EventTarget {
       if (!best || (c.rtt ?? 1e9) < (best.rtt ?? 1e9)) best = c;
     }
     return best ? { rtt: best.rtt, route: best.route } : null;
+  }
+
+  diagnostics() {
+    return {
+      code: this.code, role: this.role, status: this.status,
+      signaling: this.brokerOk && !this.peer?.disconnected && !this.peer?.destroyed,
+      members: this.members.size, host: this.isHost, peerId: this.peer?.id || null,
+      relay: relayConfigured(), configError: rtcConfigError, error: this.lastError, lastIce: this.lastIce,
+      channels: [...this.conns.values()].map(rec => ({
+        peerId: rec.conn.peer, open: rec.open, ice: rec.conn.peerConnection?.iceConnectionState || 'new',
+        connection: rec.conn.peerConnection?.connectionState || 'new',
+      })),
+      link: this.linkInfo(),
+    };
   }
 
   // Reconnect after a network or permission change.
@@ -161,12 +179,7 @@ export class Room extends EventTarget {
   _peerOptions() {
     return {
       debug: 0,
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun.cloudflare.com:3478' },
-        ],
-      },
+      config: rtcConfig,
     };
   }
 
@@ -194,20 +207,25 @@ export class Room extends EventTarget {
       if (peer !== this.peer) return;
       this.isHost = true;
       this.brokerOk = true;
-      this._setStatus(this.conns.size ? 'connected' : 'waiting');
+      this._setStatus([...this.conns.values()].some(c => c.open) ? 'connected' : 'waiting');
     });
-    peer.on('connection', (conn) => this._setupConn(conn));
+    peer.on('connection', (conn) => { if (peer === this.peer && !this.destroyed) this._setupConn(conn); else conn.close(); });
     peer.on('disconnected', () => {
       // Reconnect signaling without closing live data channels.
-      if (peer === this.peer && !peer.destroyed) setTimeout(() => { try { peer.reconnect(); } catch { /* */ } }, 1500);
+      if (peer !== this.peer || this.destroyed) return;
+      this.brokerOk = false;
+      this._emitLink();
+      this._retry = setTimeout(() => { if (peer === this.peer && !peer.destroyed) { try { peer.reconnect(); } catch { /* */ } } }, 1500);
     });
     peer.on('error', (err) => {
       if (peer !== this.peer) return;
+      if (err.type !== 'unavailable-id') this.lastError = err.type;
       if (err.type === 'unavailable-id') {
         // Connect to the existing room host.
         this._startClient();
       } else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) {
         this.brokerOk = false;
+        if ([...this.conns.values()].some(c => c.open)) return;
         if (!this.conns.size) this._setStatus('offline');
         this._scheduleRestart(3000);
       }
@@ -223,20 +241,30 @@ export class Room extends EventTarget {
     peer.on('open', () => {
       if (peer !== this.peer) return;
       this.brokerOk = true;
+      // A broker reconnect must preserve an established data channel.
+      if ([...this.conns.values()].some(c => c.open)) return;
       const conn = peer.connect(PREFIX + this.code, { reliable: true, serialization: 'json' });
       this._setupConn(conn);
-      // Retry if the channel has not opened within eight seconds.
+      // Give ICE gathering and negotiation time to finish.
       clearTimeout(this._connTimeout);
       this._connTimeout = setTimeout(() => {
         if (!conn.open && peer === this.peer) {
+          this.lastError = 'connection-timeout';
+          this.lastIce = conn.peerConnection?.iceConnectionState || 'new';
           // Signaling succeeded but the direct connection failed.
           if (!this.conns.size || ![...this.conns.values()].some(c => c.open)) this._setStatus('nop2p');
           this._scheduleRestart(200);
         }
-      }, 8000);
+      }, CONNECT_TIMEOUT);
+    });
+    peer.on('disconnected', () => {
+      if (peer !== this.peer || this.destroyed) return;
+      this.brokerOk = false; this._emitLink();
+      this._retry = setTimeout(() => { if (peer === this.peer && !peer.destroyed) { try { peer.reconnect(); } catch { /* */ } } }, 1500);
     });
     peer.on('error', (err) => {
       if (peer !== this.peer) return;
+      this.lastError = err.type;
       if (err.type === 'peer-unavailable') {
         // Try to take over from the missing host.
         this._scheduleRestart(200 + Math.random() * 600);
@@ -244,6 +272,8 @@ export class Room extends EventTarget {
         this._setStatus('nop2p');
         this._scheduleRestart(2500);
       } else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) {
+        this.brokerOk = false;
+        if ([...this.conns.values()].some(c => c.open)) return;
         if (!this.conns.size) this._setStatus('offline');
         this._scheduleRestart(2500);
       }
@@ -256,17 +286,26 @@ export class Room extends EventTarget {
   }
 
   _cleanupPeer() {
-    for (const c of this.conns.values()) { try { c.conn.close(); } catch { /* */ } }
-    this.conns.clear();
-    if (this.peer) { try { this.peer.destroy(); } catch { /* */ } }
-    this.peer = null;
+    clearTimeout(this._connTimeout);
+    clearTimeout(this._retry);
+    this.brokerOk = false;
+    // Detach before close callbacks: an old connection must not restart a new peer.
+    const records = [...this.conns.values()], peer = this.peer;
+    this.conns.clear(); this.peer = null;
+    for (const c of records) { try { c.conn.close(); } catch { /* */ } }
+    if (peer) { try { peer.destroy(); } catch { /* */ } }
   }
 
   _setupConn(conn) {
     const rec = { conn, open: false, rtt: null, route: null, last: Date.now() };
+    const previous = this.conns.get(conn.peer);
     this.conns.set(conn.peer, rec);
+    if (previous) { try { previous.conn.close(); } catch { /* */ } }
     conn.on('open', () => {
+      if (this.destroyed || this.conns.get(conn.peer) !== rec) return;
       rec.open = true;
+      this.lastError = null;
+      this.lastIce = null;
       rec.last = Date.now();
       clearTimeout(this._connTimeout);
       this._setStatus('connected');
@@ -275,6 +314,7 @@ export class Room extends EventTarget {
       this._ping(rec);
     });
     conn.on('data', (msg) => {
+      if (this.destroyed || this.conns.get(conn.peer) !== rec) return;
       rec.last = Date.now();
       if (!msg || typeof msg !== 'object') return;
       if (msg.t === '__ping') { this._direct(conn, { t: '__pong', ts: msg.ts }); return; }
@@ -289,9 +329,12 @@ export class Room extends EventTarget {
   _dropConn(peerId, conn) {
     const rec = this.conns.get(peerId);
     if (!rec || rec.conn !== conn) return;
+    this.lastIce = conn.peerConnection?.iceConnectionState || this.lastIce;
+    if (!rec.open && !this.lastError) this.lastError = 'connection-closed';
     this.conns.delete(peerId);
     try { conn.close(); } catch { /* */ }
     this._emitLink();
+    if (this.destroyed) return;
     if (!this.isHost) {
       // Elect a new host after disconnection.
       this._setStatus('connecting');
@@ -387,7 +430,11 @@ export class Room extends EventTarget {
       if (!rec.open && rec.conn.peerConnection) this.iceState = rec.conn.peerConnection.iceConnectionState;
       this._ping(rec);
       if (rec.open && now - rec.last > STALE) this._dropConn(rec.conn.peer, rec.conn);
-      else if (!rec.open && this.isHost && now - rec.last > 15000) { this.conns.delete(rec.conn.peer); try { rec.conn.close(); } catch { /* */ } }
+      else if (!rec.open && this.isHost && now - rec.last > CONNECT_TIMEOUT) {
+        this.lastError = 'connection-timeout';
+        this.lastIce = rec.conn.peerConnection?.iceConnectionState || 'new';
+        this.conns.delete(rec.conn.peer); try { rec.conn.close(); } catch { /* */ }
+      }
     }
     for (const [id, m] of this.members) {
       if (now - m.last > STALE) {

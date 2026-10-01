@@ -2976,6 +2976,126 @@
       "退出全屏",
       "पूर्ण स्क्रीन से बाहर जाएँ",
       "الخروج من ملء الشاشة"
+    ],
+    "Сервер знакомства подключён": [
+      "Сервер знакомства подключён",
+      "Signaling server connected",
+      "Servidor de señalización conectado",
+      "信令服务器已连接",
+      "सिग्नलिंग सर्वर से जुड़ा है",
+      "تم الاتصال بخادم الإشارة"
+    ],
+    "Сервер знакомства не подключён — проверьте доступ к интернету": [
+      "Сервер знакомства не подключён — проверьте доступ к интернету",
+      "Signaling server disconnected — check internet access",
+      "Servidor de señalización desconectado: comprueba internet",
+      "信令服务器未连接，请检查互联网连接",
+      "सिग्नलिंग सर्वर से संपर्क नहीं — इंटरनेट जाँचें",
+      "خادم الإشارة غير متصل — تحقق من الإنترنت"
+    ],
+    "Связь со вторым устройством установлена": [
+      "Связь со вторым устройством установлена",
+      "Connected to the other device",
+      "Conectado al otro dispositivo",
+      "已连接另一台设备",
+      "दूसरे डिवाइस से जुड़ गया",
+      "تم الاتصال بالجهاز الآخر"
+    ],
+    "Устанавливаю канал WebRTC — ожидаю ответ второго устройства…": [
+      "Устанавливаю канал WebRTC — ожидаю ответ второго устройства…",
+      "Establishing WebRTC — waiting for the other device…",
+      "Estableciendo WebRTC: esperando al otro dispositivo…",
+      "正在建立 WebRTC 连接，等待另一台设备回应…",
+      "WebRTC कनेक्शन बन रहा है — दूसरे डिवाइस का इंतज़ार…",
+      "جارٍ إنشاء اتصال WebRTC — بانتظار الجهاز الآخر…"
+    ],
+    "Канал со вторым устройством не установлен": [
+      "Канал со вторым устройством не установлен",
+      "Connection to the other device failed",
+      "No se ha establecido conexión con el otro dispositivo",
+      "未能连接另一台设备",
+      "दूसरे डिवाइस से कनेक्शन नहीं बना",
+      "لم يُنشأ اتصال بالجهاز الآخر"
+    ],
+    "Ожидаю второе устройство — проверьте ссылку и код на обоих устройствах": [
+      "Ожидаю второе устройство — проверьте ссылку и код на обоих устройствах",
+      "Waiting for another device — check the link and code on both",
+      "Esperando al otro dispositivo: comprueba el enlace y código en ambos",
+      "等待另一台设备，请检查两台设备上的链接和代码",
+      "दूसरे डिवाइस का इंतज़ार — दोनों पर लिंक और कोड जाँचें",
+      "بانتظار الجهاز الآخر — تحقق من الرابط والرمز على الجهازين"
+    ],
+    "Резервный сервер TURN не настроен. Если сеть блокирует прямой канал, веб-версия не соединится. Попробуйте локальное приложение Эфир.": [
+      "Резервный сервер TURN не настроен. Если сеть блокирует прямой канал, веб-версия не соединится. Попробуйте локальное приложение Эфир.",
+      "No TURN fallback is configured. If the network blocks direct connections, the web version cannot connect. Try the local Efir app.",
+      "No hay servidor TURN de respaldo. Si la red bloquea conexiones directas, la versión web no podrá conectar. Prueba la app local Efir.",
+      "未配置 TURN 中继。如果网络阻止直接连接，网页版将无法连接。可尝试 Efir 本地应用。",
+      "TURN बैकअप सर्वर नहीं है। नेटवर्क सीधे कनेक्शन रोकता है तो वेब संस्करण नहीं जुड़ सकता। स्थानीय Efir ऐप आज़माएँ।",
+      "لم يُضبط خادم TURN احتياطي. إذا حجبت الشبكة الاتصال المباشر فلن تتصل نسخة الويب. جرّب تطبيق Efir المحلي."
+    ],
+    "Не удалось загрузить настройки соединения — используются стандартные STUN-серверы": [
+      "Не удалось загрузить настройки соединения — используются стандартные STUN-серверы",
+      "Connection configuration unavailable — using default STUN servers",
+      "No se pudo cargar la configuración: se usan los servidores STUN predeterminados",
+      "无法加载连接配置，正在使用默认 STUN 服务器",
+      "कनेक्शन सेटिंग लोड नहीं हुई — डिफ़ॉल्ट STUN सर्वर उपयोग हो रहे हैं",
+      "تعذر تحميل إعدادات الاتصال — تُستخدم خوادم STUN الافتراضية"
+    ],
+    "Ошибка соединения": [
+      "Ошибка соединения",
+      "Connection error",
+      "Error de conexión",
+      "连接错误",
+      "कनेक्शन त्रुटि",
+      "خطأ الاتصال"
+    ],
+    "Проверки адресов ниже относятся только к этому устройству и не подтверждают связь со вторым.": [
+      "Проверки адресов ниже относятся только к этому устройству и не подтверждают связь со вторым.",
+      "The address checks below test only this device. They do not confirm a connection to another device.",
+      "Las comprobaciones de direcciones solo prueban este dispositivo. No confirman la conexión con otro.",
+      "下方地址检查仅针对本设备，并不能确认与另一台设备已连接。",
+      "नीचे की पता जाँच केवल इस डिवाइस की है। इससे दूसरे डिवाइस से संपर्क की पुष्टि नहीं होती।",
+      "فحوصات العناوين أدناه تخص هذا الجهاز فقط ولا تؤكد الاتصال بالجهاز الآخر."
+    ],
+    "Локальный адрес этого устройства виден браузеру": [
+      "Локальный адрес этого устройства виден браузеру",
+      "This device’s local address is visible to the browser",
+      "El navegador puede ver la dirección local de este dispositivo",
+      "浏览器可见本设备的局域网地址",
+      "ब्राउज़र को इस डिवाइस का स्थानीय पता दिखता है",
+      "عنوان هذا الجهاز المحلي ظاهر للمتصفح"
+    ],
+    "Внешний адрес не получен — STUN недоступен или проверка не успела завершиться": [
+      "Внешний адрес не получен — STUN недоступен или проверка не успела завершиться",
+      "No public address — STUN unavailable or the check timed out",
+      "No se obtuvo dirección externa: STUN no disponible o tiempo agotado",
+      "未获取外部地址，STUN 不可用或检查超时",
+      "बाहरी पता नहीं मिला — STUN उपलब्ध नहीं या जाँच का समय समाप्त",
+      "لم يُحصل على عنوان خارجي — STUN غير متاح أو انتهت مهلة الفحص"
+    ],
+    "Если браузер скрывает локальный адрес, разрешение микрофона может помочь соединиться. Запись сразу останавливается. Это не гарантирует связь: сеть может блокировать прямые соединения.": [
+      "Если браузер скрывает локальный адрес, разрешение микрофона может помочь соединиться. Запись сразу останавливается. Это не гарантирует связь: сеть может блокировать прямые соединения.",
+      "If the browser hides its local address, microphone permission may help. Capture stops immediately. This does not guarantee a connection: the network may block direct links.",
+      "Si el navegador oculta su dirección local, el permiso del micrófono puede ayudar. La captura se detiene enseguida. No garantiza la conexión: la red puede bloquear enlaces directos.",
+      "如果浏览器隐藏本地地址，麦克风权限可能有所帮助。采集会立即停止。这不能保证连接成功，网络可能阻止直接连接。",
+      "ब्राउज़र स्थानीय पता छिपाता है तो माइक्रोफ़ोन की अनुमति मदद कर सकती है। रिकॉर्डिंग तुरंत रुक जाती है। संपर्क की गारंटी नहीं: नेटवर्क सीधे कनेक्शन रोक सकता है।",
+      "إذا أخفى المتصفح عنوانه المحلي فقد يساعد إذن الميكروفون. يتوقف الالتقاط فورًا. لا يضمن ذلك الاتصال؛ فقد تحجب الشبكة الروابط المباشرة."
+    ],
+    "Скопировать диагностику": [
+      "Скопировать диагностику",
+      "Copy diagnostics",
+      "Copiar diagnóstico",
+      "复制诊断信息",
+      "निदान कॉपी करें",
+      "نسخ التشخيص"
+    ],
+    "Диагностика скопирована": [
+      "Диагностика скопирована",
+      "Diagnostics copied",
+      "Diagnóstico copiado",
+      "诊断信息已复制",
+      "निदान कॉपी किया गया",
+      "تم نسخ التشخيص"
     ]
   }
 }

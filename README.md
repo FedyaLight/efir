@@ -10,6 +10,8 @@ from a QR code. The local session works without internet or WebRTC.
 
 Android can also edit and read a script on its own, or host a session for other
 phones. The static web version uses PeerJS/WebRTC and runs on ordinary HTTPS hosting.
+It currently requires a working direct device connection; see
+[web connection diagnostics and relay limitations](docs/usage.md#connecting-through-the-website).
 
 [Website](https://fedyalight.github.io/efir/) ·
 [Open in your browser](https://fedyalight.github.io/efir/app/) ·

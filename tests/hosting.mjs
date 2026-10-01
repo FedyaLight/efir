@@ -37,6 +37,20 @@ try {
   await p.locator('.text').filter({ hasText: 'Прежняя версия' }).waitFor();
   // Separate profiles require WebRTC rather than BroadcastChannel.
   const a = await browser.newContext(), b = await browser.newContext();
+  // Delay real broker negotiation past the former eight-second deadline.
+  // The broker and RTCPeerConnection remain real; only delivery is delayed.
+  const brokerSockets = [];
+  let brokerBlocked = false;
+  for (const ctx of [a, b]) await ctx.routeWebSocket(/0\.peerjs\.com/, socket => {
+    if (brokerBlocked) { socket.close(); return; }
+    brokerSockets.push(socket);
+    const upstream = socket.connectToServer();
+    upstream.onMessage(message => {
+      const type = JSON.parse(String(message)).type;
+      if (['OFFER', 'ANSWER', 'CANDIDATE'].includes(type)) setTimeout(() => { if (!brokerBlocked) socket.send(message); }, 12000);
+      else socket.send(message);
+    });
+  });
   await a.grantPermissions(['microphone']); await b.grantPermissions(['microphone']);
   const ac = await a.newPage(), bp = await b.newPage();
   await ac.goto('http://127.0.0.1:18766/');
@@ -64,11 +78,20 @@ try {
     window.received = [];
     window.testRoom.addEventListener('message', e => window.received.push(e.detail));
   }, code);
-  try { await ac.waitForFunction(() => window.testRoom.peersOf('prompter').length > 0, null, { timeout: 30000 }); } catch (error) { console.log('WebRTC state', await ac.evaluate(() => ({ status: window.testRoom.status, broker: window.testRoom.brokerOk, peer: window.testRoom.peer?.id, disconnected: window.testRoom.peer?.disconnected })), await bp.evaluate(() => ({ status: window.testRoom.status, broker: window.testRoom.brokerOk, peer: window.testRoom.peer?.id }))); throw error; }
+  try { await ac.waitForFunction(() => window.testRoom.peersOf('prompter').length > 0, null, { timeout: 45000 }); } catch (error) { console.log('WebRTC state', await ac.evaluate(() => ({ status: window.testRoom.status, broker: window.testRoom.brokerOk, peer: window.testRoom.peer?.id, disconnected: window.testRoom.peer?.disconnected })), await bp.evaluate(() => ({ status: window.testRoom.status, broker: window.testRoom.brokerOk, peer: window.testRoom.peer?.id }))); throw error; }
   await bp.waitForFunction(() => window.testRoom.peersOf('controller').length > 0, { timeout: 30000 });
   await ac.evaluate(() => window.testRoom.send('script', { text: 'WebRTC проверен' }));
   await bp.waitForFunction(() => window.received.some(m => m.text === 'WebRTC проверен'));
   assert.ok(await ac.evaluate(() => !!window.testRoom.linkInfo()));
+  // Losing the broker must not tear down the established device link.
+  brokerBlocked = true;
+  for (const socket of brokerSockets) socket.close();
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  await ac.evaluate(() => window.testRoom.send('script', { text: 'Still connected without signaling' }));
+  await bp.waitForFunction(() => window.received.some(m => m.text === 'Still connected without signaling'));
+  assert.equal(await ac.evaluate(() => window.testRoom.peersOf('prompter').length), 1);
+  await ac.evaluate(() => window.testRoom.destroy());
+  await bp.evaluate(() => window.testRoom.destroy());
   assert.deepEqual(errors, []);
-  console.log('PASS static hosting: no local marker, role choices, six home languages, BroadcastChannel, PeerJS loaded, real WebRTC between separate browser profiles');
+  console.log('PASS static hosting: no local marker, role choices, six home languages, BroadcastChannel, PeerJS loaded, delayed real WebRTC between separate profiles, live channel survives broker outage');
 } finally { await browser.close(); await new Promise(r => server.close(r)); }

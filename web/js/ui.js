@@ -222,8 +222,8 @@ export function roomUrl(role, code) {
   return `${window.efirNative?.publicOrigin || location.origin}${location.pathname}#/${role}/${code}`;
 }
 
-export async function copyText(text) {
-  try { if (navigator.clipboard) { await navigator.clipboard.writeText(text); toast(t('Ссылка скопирована')); return; } } catch { /* Clipboard fallback for HTTP. */ }
+export async function copyText(text, successMessage = 'Ссылка скопирована') {
+  try { if (navigator.clipboard) { await navigator.clipboard.writeText(text); toast(t(successMessage)); return; } } catch { /* Clipboard fallback for HTTP. */ }
   const el = document.createElement('textarea');
   el.value = text;
   el.style.cssText = 'position:fixed;left:-9999px;top:0';
@@ -233,5 +233,5 @@ export async function copyText(text) {
   let ok = false;
   try { ok = document.execCommand('copy'); } catch { /* */ }
   el.remove(); active?.focus();
-  toast(ok ? t('Ссылка скопирована') : text);
+  toast(ok ? t(successMessage) : text);
 }

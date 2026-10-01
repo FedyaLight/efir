@@ -1,5 +1,6 @@
 import { t, translateUI, onLanguageChange } from './i18n.js';
 import { localMode } from './environment.js';
+import { copyText } from './ui.js';
 
 // Help WebRTC expose local host candidates.
 //
@@ -37,8 +38,9 @@ export async function unlockLan() {
 export async function diagnose() {
   const res = { host: 'none', srflx: false, relay: false, error: null };
   if (typeof RTCPeerConnection !== 'function') { res.error = 'WebRTC не поддерживается'; return res; }
-  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }] });
+  let pc;
   try {
+    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }] });
     pc.createDataChannel('probe');
     const done = new Promise((resolve) => {
       const t = setTimeout(resolve, 4000);
@@ -60,18 +62,31 @@ export async function diagnose() {
   } catch (e) {
     res.error = String(e && e.message || e);
   } finally {
-    pc.close();
+    pc?.close();
   }
   return res;
 }
 
-export function describe(d) {
+export function describe(d, state, connected = false) {
   const lines = [];
-  lines.push(d.host === 'ip' ? ['ok', 'Локальный адрес виден — прямое соединение в Wi‑Fi возможно']
+  if (state) {
+    lines.push(state.signaling ? ['ok', 'Сервер знакомства подключён'] : ['warn', 'Сервер знакомства не подключён — проверьте доступ к интернету']);
+    const failed = state.channels.some(c => c.ice === 'failed') || !!state.error;
+    lines.push(connected ? ['ok', 'Связь со вторым устройством установлена']
+      : state.channels.length && !failed ? ['wait', 'Устанавливаю канал WebRTC — ожидаю ответ второго устройства…']
+      : failed ? ['bad', 'Канал со вторым устройством не установлен']
+      : ['wait', 'Ожидаю второе устройство — проверьте ссылку и код на обоих устройствах']);
+    if (!connected && !state.relay) lines.push(['warn', 'Резервный сервер TURN не настроен. Если сеть блокирует прямой канал, веб-версия не соединится. Попробуйте локальное приложение Эфир.']);
+    if (state.configError) lines.push(['warn', 'Не удалось загрузить настройки соединения — используются стандартные STUN-серверы']);
+    if (state.error) lines.push(['bad', `${t('Ошибка соединения')}: ${state.error}${state.lastIce ? ` (ICE: ${state.lastIce})` : ''}`]);
+  }
+  if (!d) return lines;
+  lines.push(['warn', 'Проверки адресов ниже относятся только к этому устройству и не подтверждают связь со вторым.']);
+  lines.push(d.host === 'ip' ? ['ok', 'Локальный адрес этого устройства виден браузеру']
     : d.host === 'mdns' ? ['warn', 'Локальный адрес скрыт браузером (.local) — нажмите «Разрешить поиск в локальной сети»']
     : d.host === 'ipv6' ? ['warn', 'Виден только IPv6-адрес — нажмите «Разрешить поиск в локальной сети»']
     : ['bad', 'Локальный адрес не найден — устройство не в сети или WebRTC заблокирован']);
-  lines.push(d.srflx ? ['ok', 'Внешний адрес получен (STUN работает)'] : ['warn', 'Внешний адрес не получен — сеть блокирует UDP/STUN']);
+  lines.push(d.srflx ? ['ok', 'Внешний адрес получен (STUN работает)'] : ['warn', 'Внешний адрес не получен — STUN недоступен или проверка не успела завершиться']);
   if (d.error) lines.push(['bad', d.error]);
   return lines;
 }
@@ -84,11 +99,12 @@ export function mountLanHelp(host, room, isConnected, { eager = true, always = f
   box.innerHTML = `
     <div class="lan-txt">
       <b>Устройства не видят друг друга напрямую?</b>
-      <p>Браузер скрывает адрес этого устройства в локальной сети. Разрешите доступ — браузер спросит микрофон: только так сайт может открыть свой локальный адрес. Микрофон сразу выключается. <b>Сделайте это на обоих устройствах.</b></p>
+      <p>Если браузер скрывает локальный адрес, разрешение микрофона может помочь соединиться. Запись сразу останавливается. Это не гарантирует связь: сеть может блокировать прямые соединения. <b>Сделайте это на обоих устройствах.</b></p>
     </div>
     <div class="lan-act">
       <button class="pill-btn accent" data-lan="unlock">Разрешить поиск в локальной сети</button>
       <button class="pill-btn" data-lan="diag">Диагностика</button>
+      <button class="pill-btn" data-lan="copy" hidden>Скопировать диагностику</button>
     </div>
     <ul class="lan-diag"></ul>`;
   host.appendChild(box);
@@ -97,13 +113,31 @@ export function mountLanHelp(host, room, isConnected, { eager = true, always = f
   let unlockedNow = false, autoTried = false;
   const started = Date.now();
 
-  const renderDiag = async () => {
-    diagEl.innerHTML = '<li data-s="wait">Проверяю…</li>';
-    translateUI(diagEl);
-    const d = await diagnose();
-    diagEl.innerHTML = describe(d).map(([s, t]) => `<li data-s="${s}">${t}</li>`).join('');
-    translateUI(diagEl);
+  let probe, checking = false, disposed = false, shown = false, lastRender = '';
+  const copyBtn = box.querySelector('[data-lan="copy"]');
+  const paintDiag = () => {
+    if (!shown || disposed) return;
+    const lines = describe(probe, room.diagnostics(), isConnected());
+    if (checking) lines.push(['wait', 'Проверяю…']);
+    const translated = lines.map(([status, source]) => [status, t(source)]);
+    const signature = JSON.stringify(translated);
+    if (signature === lastRender) return;
+    lastRender = signature;
+    diagEl.replaceChildren(...translated.map(([status, text]) => {
+      const li = document.createElement('li');
+      li.dataset.s = status; li.textContent = text; return li;
+    }));
   };
+  const renderDiag = async () => {
+    if (checking || disposed) return;
+    shown = true; checking = true; copyBtn.hidden = false; paintDiag();
+    probe = await diagnose(); checking = false; paintDiag();
+  };
+  copyBtn.onclick = () => copyText(JSON.stringify({
+    site: location.origin + location.pathname,
+    time: new Date().toISOString(), browser: navigator.userAgent,
+    room: room.diagnostics(), probe,
+  }, null, 2), 'Диагностика скопирована');
 
   box.querySelector('[data-lan="unlock"]').onclick = async () => {
     const ok = await unlockLan();
@@ -112,14 +146,16 @@ export function mountLanHelp(host, room, isConnected, { eager = true, always = f
       room.restart();
       renderDiag();
     } else {
-      diagEl.innerHTML = '<li data-s="bad">Доступ не выдан. Разрешите микрофон для этого сайта в настройках браузера и нажмите ещё раз.</li>';
-      translateUI(diagEl);
+      shown = true; probe = { host: 'none', srflx: false, error: 'Доступ не выдан. Разрешите микрофон для этого сайта в настройках браузера и нажмите ещё раз.' };
+      copyBtn.hidden = false; paintDiag();
     }
     update();
   };
   box.querySelector('[data-lan="diag"]').onclick = renderDiag;
 
   async function update() {
+    if (disposed) return;
+    paintDiag();
     const connected = isConnected();
     const failing = room.status === 'nop2p' || (eager && !connected && Date.now() - started > 9000);
     box.classList.toggle('show', always || (!connected && failing));
@@ -137,5 +173,5 @@ export function mountLanHelp(host, room, isConnected, { eager = true, always = f
   room.addEventListener('status', onStatus);
   update();
   const releaseLanguage = onLanguageChange(update);
-  return { update, destroy() { releaseTranslation(); releaseLanguage(); clearInterval(timer); room.removeEventListener('status', onStatus); box.remove(); } };
+  return { update, destroy() { disposed = true; releaseTranslation(); releaseLanguage(); clearInterval(timer); room.removeEventListener('status', onStatus); box.remove(); } };
 }

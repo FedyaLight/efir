@@ -54,6 +54,22 @@ Two independent Chromium profiles on the public HTTPS site synchronized a script
 through real WebRTC; reader links preserve the `/efir/app/` path. These are
 publication checks, not proof of search-engine indexing or ranking.
 
+## Hosted connection recovery (October 1)
+
+The hosting regression delays real PeerJS negotiation messages by 12 seconds.
+The pre-fix client repeatedly abandons negotiation at eight seconds and fails to
+pair; the updated client pairs and delivers script messages. A second check
+blocks signaling after pairing and verifies that the established data channel
+still delivers messages. These are Chromium checks, not Safari/Android network
+reproductions.
+
+The connection report was checked in all six languages at a 390-pixel viewport,
+including clipboard output from a real Room. A local-marker startup check made
+no external or ICE-configuration requests. The public deployment remains
+STUN-only: networks blocking direct WebRTC still require a TURN service or the
+native local mode. Safari on Mac with Chrome on a physical Android device
+remains a user-side check.
+
 ## Resource activity
 
 An eight-second Chromium sample from the 1.3.1 verification run:

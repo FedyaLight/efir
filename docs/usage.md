@@ -99,3 +99,23 @@ the controller application's microphone instead.
 Speed mode, manual scrolling and clickers remain available without recognition.
 The on-screen transcript helps check what the recognizer heard; rereading a phrase
 moves the reader back through the same word matcher.
+
+## Connecting through the website
+
+The HTTPS website uses PeerJS for signaling and WebRTC for device traffic. Open
+**Connect teleprompter** on the controller and use its QR or link on the reader;
+check that both devices use the same code. Keep both tabs in the foreground.
+
+**Diagnostics** distinguishes the signaling server, the actual device connection
+and this device's address checks. A local IP or a successful STUN check does not
+prove that the devices can reach each other. Microphone permission can expose
+local addresses in some browsers; capture stops immediately, and permission does
+not override firewall or Wi-Fi client isolation.
+
+Negotiation has up to 30 seconds before retrying. If it still fails, use **Copy
+diagnostics** on both devices and include the reports in a bug report. They
+contain browser, connection and ICE states, without scripts or server credentials.
+
+The public website currently has STUN servers but no TURN relay. Networks that
+block direct WebRTC need a configured TURN service, or the native Efir app's local
+HTTP/WebSocket mode. The native mode does not use hosted signaling or WebRTC.

@@ -105,6 +105,27 @@ frame limits and close handling; its upstream license is retained.
 Kotlin uses `ktfmt --kotlinlang-style`; Swift uses `swift-format` with the
 checked-in configuration. Keep browser code's existing two-space ES-module style.
 
+## Hosted WebRTC configuration
+
+`web/rtc-config.json` supplies the static website's `iceServers` to PeerJS. The
+checked-in configuration uses only STUN; it does not provide a TURN fallback.
+To run a relay, configure your own TURN service. PeerJS's bundled default TURN
+addresses are not used as a reliability guarantee.
+
+For short-lived credentials, set `credentialsUrl` to an HTTPS endpoint you own.
+It must allow the website's origin through CORS and return either an array of
+`RTCIceServer` objects or `{ "iceServers": [...] }`. Relative URLs resolve against
+`rtc-config.json`. Return STUN and TURN entries, including a TLS/TCP TURN endpoint
+for networks that block UDP. The request times out after three seconds; invalid
+or unavailable configuration falls back to STUN and is reported in Diagnostics.
+Do not commit API keys, TURN shared secrets or credential-generation secrets.
+Browser-facing credentials must be suitable for public clients, short-lived and
+quota-limited. Existing sessions keep their configuration until a page reload.
+
+Native local sessions skip this configuration fetch and credential endpoint;
+they continue to work without internet. The relay is a deployment service and
+is not needed to build or run any native app.
+
 ## Assets and localization
 
 - `web/locales/messages.json` is shared by the browser and native shells. Keep all
