@@ -7,7 +7,7 @@
 
 import { store } from './store.js';
 import { localMode, nativeVoice } from './environment.js';
-import { rtcConfig, relayConfigured, rtcConfigError } from './rtc.js';
+import { rtcConfig, peerServer, signalingEndpoint, relayConfigured, rtcConfigError } from './rtc.js';
 
 let peerLibrary;
 function loadPeer() {
@@ -41,6 +41,7 @@ export class Room extends EventTarget {
     this.brokerOk = false;
     this.lastError = null;
     this.lastIce = null;
+    this._signalingDelay = 1500;
 
     this.localMode = localMode;
     if (!localMode) this._startBroadcast();
@@ -76,6 +77,7 @@ export class Room extends EventTarget {
     return {
       code: this.code, role: this.role, status: this.status,
       signaling: this.brokerOk && !this.peer?.disconnected && !this.peer?.destroyed,
+      signalingEndpoint: signalingEndpoint(),
       members: this.members.size, host: this.isHost, peerId: this.peer?.id || null,
       relay: relayConfigured(), configError: rtcConfigError, error: this.lastError, lastIce: this.lastIce,
       channels: [...this.conns.values()].map(rec => ({
@@ -178,6 +180,7 @@ export class Room extends EventTarget {
   // ——— PeerJS ———
   _peerOptions() {
     return {
+      ...peerServer,
       debug: 0,
       config: rtcConfig,
     };
@@ -207,16 +210,12 @@ export class Room extends EventTarget {
       if (peer !== this.peer) return;
       this.isHost = true;
       this.brokerOk = true;
+      this._signalingDelay = 1500;
+      if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(this.lastError)) this.lastError = null;
       this._setStatus([...this.conns.values()].some(c => c.open) ? 'connected' : 'waiting');
     });
     peer.on('connection', (conn) => { if (peer === this.peer && !this.destroyed) this._setupConn(conn); else conn.close(); });
-    peer.on('disconnected', () => {
-      // Reconnect signaling without closing live data channels.
-      if (peer !== this.peer || this.destroyed) return;
-      this.brokerOk = false;
-      this._emitLink();
-      this._retry = setTimeout(() => { if (peer === this.peer && !peer.destroyed) { try { peer.reconnect(); } catch { /* */ } } }, 1500);
-    });
+    peer.on('disconnected', () => this._reconnectSignaling(peer));
     peer.on('error', (err) => {
       if (peer !== this.peer) return;
       if (err.type !== 'unavailable-id') this.lastError = err.type;
@@ -241,6 +240,8 @@ export class Room extends EventTarget {
     peer.on('open', () => {
       if (peer !== this.peer) return;
       this.brokerOk = true;
+      this._signalingDelay = 1500;
+      if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(this.lastError)) this.lastError = null;
       // A broker reconnect must preserve an established data channel.
       if ([...this.conns.values()].some(c => c.open)) return;
       const conn = peer.connect(PREFIX + this.code, { reliable: true, serialization: 'json' });
@@ -257,11 +258,7 @@ export class Room extends EventTarget {
         }
       }, CONNECT_TIMEOUT);
     });
-    peer.on('disconnected', () => {
-      if (peer !== this.peer || this.destroyed) return;
-      this.brokerOk = false; this._emitLink();
-      this._retry = setTimeout(() => { if (peer === this.peer && !peer.destroyed) { try { peer.reconnect(); } catch { /* */ } } }, 1500);
-    });
+    peer.on('disconnected', () => this._reconnectSignaling(peer));
     peer.on('error', (err) => {
       if (peer !== this.peer) return;
       this.lastError = err.type;
@@ -278,6 +275,20 @@ export class Room extends EventTarget {
         this._scheduleRestart(2500);
       }
     });
+  }
+
+  _reconnectSignaling(peer) {
+    if (peer !== this.peer || this.destroyed) return;
+    this.brokerOk = false; this._emitLink();
+    // Replace the error handler's restart; it must not outlive recovery.
+    clearTimeout(this._retry);
+    const delay = this._signalingDelay;
+    this._signalingDelay = Math.min(15000, delay * 2);
+    this._retry = setTimeout(() => {
+      if (peer !== this.peer || this.destroyed) return;
+      if (peer.destroyed) { this._startPeer(); return; }
+      try { peer.reconnect(); } catch { this._reconnectSignaling(peer); }
+    }, delay + Math.random() * delay * 0.2);
   }
 
   _scheduleRestart(ms) {

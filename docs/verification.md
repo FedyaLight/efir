@@ -70,6 +70,22 @@ STUN-only: networks blocking direct WebRTC still require a TURN service or the
 native local mode. Safari on Mac with Chrome on a physical Android device
 remains a user-side check.
 
+The follow-up signaling checks distinguish a closed WebSocket from a responding
+broker rejecting a key; they no longer suggest TURN while signaling is down.
+Custom host/port/path/key options were exercised against official PeerServer
+1.0.2 with two independent Chromium profiles and the public broker blocked.
+The connection report was checked in six languages at 390 pixels. This verifies
+configuration and reporting, not access from the reported Mac/Android network.
+The public site still uses `0.peerjs.com`; no replacement service was deployed.
+
+A first failed broker dial exposed competing `error` and `disconnected` retry
+timers: a stale restart could destroy negotiation after signaling recovered.
+The regression closes the first socket, delays real negotiation, and refuses
+new sockets after the recovered offer. The previous version fails to pair;
+the fixed version pairs and delivers the script over the recovered connection.
+Retries use one timer with exponential delays, capped at a 15-second base plus
+jitter. This check uses the actual public broker and Chromium data channels.
+
 ## Resource activity
 
 An eight-second Chromium sample from the 1.3.1 verification run:

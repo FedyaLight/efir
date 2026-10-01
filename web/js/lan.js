@@ -1,6 +1,7 @@
 import { t, translateUI, onLanguageChange } from './i18n.js';
 import { localMode } from './environment.js';
 import { copyText } from './ui.js';
+import { probeSignaling } from './rtc.js';
 
 // Help WebRTC expose local host candidates.
 //
@@ -35,17 +36,25 @@ export async function unlockLan() {
 }
 
 // Inspect the host candidates visible to WebRTC on this device.
-export async function diagnose() {
+export async function diagnose(signal) {
   const res = { host: 'none', srflx: false, relay: false, error: null };
-  if (typeof RTCPeerConnection !== 'function') { res.error = 'WebRTC не поддерживается'; return res; }
-  let pc;
+  if (localMode) return { ...res, signaling: { state: 'local' } };
+  const signaling = probeSignaling(signal);
+  if (typeof RTCPeerConnection !== 'function') {
+    res.error = 'WebRTC не поддерживается'; res.signaling = await signaling; return res;
+  }
+  let pc, timer, cancel;
   try {
     pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }] });
     pc.createDataChannel('probe');
     const done = new Promise((resolve) => {
-      const t = setTimeout(resolve, 4000);
+      const finish = () => { clearTimeout(timer); signal?.removeEventListener('abort', finish); resolve(); };
+      cancel = finish;
+      timer = setTimeout(finish, 4000);
+      if (signal?.aborted) { finish(); return; }
+      signal?.addEventListener('abort', finish, { once: true });
       pc.onicecandidate = (e) => {
-        if (!e.candidate) { clearTimeout(t); resolve(); return; }
+        if (!e.candidate) { finish(); return; }
         const c = e.candidate.candidate;
         const addr = c.split(' ')[4] || '';
         if (/ typ host/.test(c)) {
@@ -57,30 +66,40 @@ export async function diagnose() {
         if (/ typ relay/.test(c)) res.relay = true;
       };
     });
-    await pc.setLocalDescription(await pc.createOffer());
+    if (!signal?.aborted) await pc.setLocalDescription(await pc.createOffer());
     await done;
   } catch (e) {
     res.error = String(e && e.message || e);
   } finally {
     pc?.close();
+    clearTimeout(timer); signal?.removeEventListener('abort', cancel);
   }
+  res.signaling = await signaling;
   return res;
 }
 
 export function describe(d, state, connected = false) {
   const lines = [];
   if (state) {
-    lines.push(state.signaling ? ['ok', 'Сервер знакомства подключён'] : ['warn', 'Сервер знакомства не подключён — проверьте доступ к интернету']);
-    const failed = state.channels.some(c => c.ice === 'failed') || !!state.error;
+    lines.push(state.signaling ? ['ok', 'Сервер знакомства подключён'] : ['bad', 'Нет связи с сервером знакомства']);
+    const iceFailed = state.channels.some(c => c.ice === 'failed') || state.lastIce === 'failed'
+      || ['connection-timeout', 'webrtc', 'negotiation-failed'].includes(state.error);
+    const failed = iceFailed || !!state.error;
     lines.push(connected ? ['ok', 'Связь со вторым устройством установлена']
-      : state.channels.length && !failed ? ['wait', 'Устанавливаю канал WebRTC — ожидаю ответ второго устройства…']
+      : !state.signaling ? ['bad', 'Второе устройство нельзя найти, пока сервер знакомства недоступен']
+      : state.channels.length && !iceFailed ? ['wait', 'Устанавливаю канал WebRTC — ожидаю ответ второго устройства…']
       : failed ? ['bad', 'Канал со вторым устройством не установлен']
       : ['wait', 'Ожидаю второе устройство — проверьте ссылку и код на обоих устройствах']);
-    if (!connected && !state.relay) lines.push(['warn', 'Резервный сервер TURN не настроен. Если сеть блокирует прямой канал, веб-версия не соединится. Попробуйте локальное приложение Эфир.']);
+    if (!connected && state.signaling && iceFailed && !state.relay) lines.push(['warn', 'Резервный сервер TURN не настроен. Если сеть блокирует прямой канал, веб-версия не соединится. Попробуйте локальное приложение Эфир.']);
     if (state.configError) lines.push(['warn', 'Не удалось загрузить настройки соединения — используются стандартные STUN-серверы']);
     if (state.error) lines.push(['bad', `${t('Ошибка соединения')}: ${state.error}${state.lastIce ? ` (ICE: ${state.lastIce})` : ''}`]);
   }
   if (!d) return lines;
+  if (d.signaling && d.signaling.state !== 'cancelled') {
+    lines.push(d.signaling.state === 'connected' ? ['ok', 'Проверка WebSocket: сервер знакомства отвечает']
+      : d.signaling.state === 'rejected' ? ['bad', 'Проверка WebSocket: сервер не принял подключение. Проверьте ключ и настройки сервера.']
+      : ['bad', 'Проверка WebSocket: нет ответа сервера знакомства. Возможны блокировка адреса, фильтрация соединений или сбой сервиса.']);
+  }
   lines.push(['warn', 'Проверки адресов ниже относятся только к этому устройству и не подтверждают связь со вторым.']);
   lines.push(d.host === 'ip' ? ['ok', 'Локальный адрес этого устройства виден браузеру']
     : d.host === 'mdns' ? ['warn', 'Локальный адрес скрыт браузером (.local) — нажмите «Разрешить поиск в локальной сети»']
@@ -113,7 +132,7 @@ export function mountLanHelp(host, room, isConnected, { eager = true, always = f
   let unlockedNow = false, autoTried = false;
   const started = Date.now();
 
-  let probe, checking = false, disposed = false, shown = false, lastRender = '';
+  let probe, probeAbort, checking = false, disposed = false, shown = false, lastRender = '';
   const copyBtn = box.querySelector('[data-lan="copy"]');
   const paintDiag = () => {
     if (!shown || disposed) return;
@@ -130,8 +149,9 @@ export function mountLanHelp(host, room, isConnected, { eager = true, always = f
   };
   const renderDiag = async () => {
     if (checking || disposed) return;
-    shown = true; checking = true; copyBtn.hidden = false; paintDiag();
-    probe = await diagnose(); checking = false; paintDiag();
+    shown = true; checking = true; probe = undefined; copyBtn.hidden = false; copyBtn.disabled = true; paintDiag();
+    probeAbort = new AbortController();
+    probe = await diagnose(probeAbort.signal); checking = false; copyBtn.disabled = false; paintDiag();
   };
   copyBtn.onclick = () => copyText(JSON.stringify({
     site: location.origin + location.pathname,
@@ -173,5 +193,5 @@ export function mountLanHelp(host, room, isConnected, { eager = true, always = f
   room.addEventListener('status', onStatus);
   update();
   const releaseLanguage = onLanguageChange(update);
-  return { update, destroy() { disposed = true; releaseTranslation(); releaseLanguage(); clearInterval(timer); room.removeEventListener('status', onStatus); box.remove(); } };
+  return { update, destroy() { disposed = true; probeAbort?.abort(); releaseTranslation(); releaseLanguage(); clearInterval(timer); room.removeEventListener('status', onStatus); box.remove(); } };
 }

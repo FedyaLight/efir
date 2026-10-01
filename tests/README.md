@@ -19,7 +19,7 @@ cargo run --locked --manifest-path tests/RustServerHarness/Cargo.toml \
 In another terminal:
 
 ```sh
-npm install --prefix work/testing playwright
+npm install --prefix work/testing playwright peer@1.0.2
 work/testing/node_modules/.bin/playwright install chromium
 EFIR_URL=http://localhost:18765 node tests/relay.mjs
 EFIR_URL=http://localhost:18765 EFIR_LAN_URL=http://YOUR_WIFI_IP:18765 \
@@ -42,9 +42,13 @@ On macOS, `http://0.0.0.0:18765` can provide an insecure Chromium context for
 | `layout.mjs` | Six UI languages, light/dark, narrow/landscape/tablet/desktop, dialogs, icon-only exit and fullscreen labels |
 
 `hosting.mjs` needs internet for signaling. It delays negotiation messages by 12
-seconds and checks that losing the broker preserves an established device link.
-These checks do not replace Safari/Android tests on separate physical devices. Local browser checks reject external
-requests. Browser bridge adapters check the shared JS contract; actual native
+seconds after a first failed broker dial and checks recovery over the existing
+socket. It also checks that losing the broker preserves an established device link.
+It also checks a blocked signaling WebSocket and sync through an official
+local PeerServer configured with a custom host, port, path and key.
+These checks do not replace Safari/Android tests on separate physical devices.
+Local browser checks reject external requests. Browser bridge adapters check
+the shared JS contract; actual native
 implementations are exercised separately.
 
 ## Android lifecycle and native WebView

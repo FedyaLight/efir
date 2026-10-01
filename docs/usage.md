@@ -115,6 +115,9 @@ not override firewall or Wi-Fi client isolation.
 Negotiation has up to 30 seconds before retrying. If it still fails, use **Copy
 diagnostics** on both devices and include the reports in a bug report. They
 contain browser, connection and ICE states, without scripts or server credentials.
+The separate WebSocket check tests whether the signaling service answers from
+this device. A signaling failure must be resolved before diagnosing a missing
+TURN fallback; HTTPS access alone does not verify WebSocket access.
 
 The public website currently has STUN servers but no TURN relay. Networks that
 block direct WebRTC need a configured TURN service, or the native Efir app's local

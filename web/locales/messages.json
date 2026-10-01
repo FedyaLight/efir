@@ -3096,6 +3096,46 @@
       "诊断信息已复制",
       "निदान कॉपी किया गया",
       "تم نسخ التشخيص"
+    ],
+    "Нет связи с сервером знакомства": [
+      "Нет связи с сервером знакомства",
+      "No connection to the signaling server",
+      "Sin conexión con el servidor de señalización",
+      "未连接信令服务器",
+      "सिग्नलिंग सर्वर से संपर्क नहीं",
+      "لا يوجد اتصال بخادم الإشارة"
+    ],
+    "Второе устройство нельзя найти, пока сервер знакомства недоступен": [
+      "Второе устройство нельзя найти, пока сервер знакомства недоступен",
+      "Cannot find another device while the signaling server is unavailable",
+      "No se puede encontrar otro dispositivo mientras el servidor de señalización no esté disponible",
+      "信令服务器不可用时，无法找到另一台设备",
+      "सिग्नलिंग सर्वर उपलब्ध होने तक दूसरा डिवाइस नहीं मिल सकता",
+      "لا يمكن العثور على الجهاز الآخر ما دام خادم الإشارة غير متاح"
+    ],
+    "Проверка WebSocket: сервер знакомства отвечает": [
+      "Проверка WebSocket: сервер знакомства отвечает",
+      "WebSocket check: signaling server responds",
+      "Prueba WebSocket: el servidor de señalización responde",
+      "WebSocket 检查：信令服务器已响应",
+      "WebSocket जाँच: सिग्नलिंग सर्वर जवाब दे रहा है",
+      "فحص WebSocket: خادم الإشارة يستجيب"
+    ],
+    "Проверка WebSocket: нет ответа сервера знакомства. Возможны блокировка адреса, фильтрация соединений или сбой сервиса.": [
+      "Проверка WebSocket: нет ответа сервера знакомства. Возможны блокировка адреса, фильтрация соединений или сбой сервиса.",
+      "WebSocket check: no signaling server response. The address or connection may be blocked, or the service may be down.",
+      "Prueba WebSocket: sin respuesta del servidor. Puede haber un bloqueo de dirección o conexión, o un fallo del servicio.",
+      "WebSocket 检查：信令服务器未响应。地址或连接可能被阻止，也可能是服务故障。",
+      "WebSocket जाँच: सिग्नलिंग सर्वर का जवाब नहीं आया। पता या कनेक्शन अवरुद्ध हो सकता है, या सेवा बंद हो सकती है।",
+      "فحص WebSocket: لا استجابة من خادم الإشارة. قد يكون العنوان أو الاتصال محجوبًا، أو قد تكون الخدمة متوقفة."
+    ],
+    "Проверка WebSocket: сервер не принял подключение. Проверьте ключ и настройки сервера.": [
+      "Проверка WebSocket: сервер не принял подключение. Проверьте ключ и настройки сервера.",
+      "WebSocket check: the server did not accept the connection. Check the server key and configuration.",
+      "Prueba WebSocket: el servidor no aceptó la conexión. Comprueba la clave y configuración del servidor.",
+      "WebSocket 检查：服务器未接受连接。请检查服务器密钥和配置。",
+      "WebSocket जाँच: सर्वर ने कनेक्शन स्वीकार नहीं किया। सर्वर की कुंजी और सेटिंग जाँचें।",
+      "فحص WebSocket: لم يقبل الخادم الاتصال. تحقق من مفتاح الخادم وإعداداته."
     ]
   }
 }

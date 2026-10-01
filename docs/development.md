@@ -107,8 +107,11 @@ checked-in configuration. Keep browser code's existing two-space ES-module style
 
 ## Hosted WebRTC configuration
 
-`web/rtc-config.json` supplies the static website's `iceServers` to PeerJS. The
-checked-in configuration uses only STUN; it does not provide a TURN fallback.
+`web/rtc-config.json` supplies the static website's `iceServers` and
+`peerServer` connection options to PeerJS. See
+[hosted signaling](hosted-signaling.md) for broker diagnostics and a self-hosted
+PeerServer setup. The checked-in configuration uses only STUN; it does not
+provide a TURN fallback.
 To run a relay, configure your own TURN service. PeerJS's bundled default TURN
 addresses are not used as a reliability guarantee.
 
