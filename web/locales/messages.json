@@ -3136,6 +3136,22 @@
       "WebSocket 检查：服务器未接受连接。请检查服务器密钥和配置。",
       "WebSocket जाँच: सर्वर ने कनेक्शन स्वीकार नहीं किया। सर्वर की कुंजी और सेटिंग जाँचें।",
       "فحص WebSocket: لم يقبل الخادم الاتصال. تحقق من مفتاح الخادم وإعداداته."
+    ],
+    "Есть приложение для macOS, Windows, Linux и Android.": [
+      "Есть приложение для macOS, Windows, Linux и Android.",
+      "An app is also available for macOS, Windows, Linux and Android.",
+      "También hay una aplicación para macOS, Windows, Linux y Android.",
+      "也有适用于 macOS、Windows、Linux 和 Android 的应用。",
+      "macOS, Windows, Linux और Android के लिए ऐप भी उपलब्ध है।",
+      "يتوفر أيضًا تطبيق لأنظمة macOS وWindows وLinux وAndroid."
+    ],
+    "Скачать приложение": [
+      "Скачать приложение",
+      "Download the app",
+      "Descargar la aplicación",
+      "下载应用",
+      "ऐप डाउनलोड करें",
+      "تنزيل التطبيق"
     ]
   }
 }

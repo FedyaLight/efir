@@ -1,6 +1,6 @@
 import { localMode } from './environment.js';
 import { platform } from './platform.js';
-import { t, translateUI, onLanguageChange, languagePicker } from './i18n.js';
+import { t, translateUI, onLanguageChange, languagePicker, uiLanguage } from './i18n.js';
 
 import { store, newRoomCode, cleanRoom, DEFAULTS } from './store.js';
 import { mountController } from './controller.js';
@@ -78,6 +78,7 @@ function mountHome(root) {
             ${icon('arrow')}
           </button>
         </div>
+        <p class="h-download">Есть приложение для macOS, Windows, Linux и Android. <a href="https://fedyalight.github.io/efir/download/" data-download>Скачать приложение</a></p>
       </section>
 
       <section class="h-notes">
@@ -88,13 +89,16 @@ function mountHome(root) {
     </main>`;
   root.appendChild(el);
   const releaseTranslation = translateUI(el);
+  const download = el.querySelector('[data-download]');
+  const updateDownload = () => { download.href = `https://fedyalight.github.io/efir/download/${uiLanguage() === 'en' ? '' : uiLanguage() + '/'}#downloads`; };
+  updateDownload();
 
   // The demo uses the same Stage as the reading screen.
   const stage = new Stage(el.querySelector('.demo-screen'), { fill: true });
   stage.setSettings({ ...DEFAULTS, fontSize: 26, sidePad: 7, topPad: 45, bottomPad: 60, markerPos: 45, showTimer: false, countdown: 0 });
   stage.setScript(t('sample.demo'));
   const engine = new Engine(stage);
-  const releaseLanguage = onLanguageChange(() => { stage.setScript(t('sample.demo')); engine.pos = stage.clamp(engine.pos); });
+  const releaseLanguage = onLanguageChange(() => { stage.setScript(t('sample.demo')); engine.pos = stage.clamp(engine.pos); updateDownload(); });
   engine.speed = 3.2;
   engine.play(0);
   let raf = 0, last = performance.now(), wait = 0;

@@ -54,6 +54,14 @@ Two independent Chromium profiles on the public HTTPS site synchronized a script
 through real WebRTC; reader links preserve the `/efir/app/` path. These are
 publication checks, not proof of search-engine indexing or ranking.
 
+On October 2, the app replaced the product landing page at the website root.
+A Chromium check at 390 pixels verified direct entry at `/`, legacy `/app/`
+and `/ru/`, all six translated download notes, and script synchronization from
+the root controller to a root reader using BroadcastChannel. The six static
+download pages loaded their assets and linked back to the app. No horizontal
+overflow or JavaScript errors were observed. This is an entry-point and layout
+check, not another cross-device WebRTC verification.
+
 ## Hosted connection recovery (October 1)
 
 The hosting regression delays real PeerJS negotiation messages by 12 seconds.

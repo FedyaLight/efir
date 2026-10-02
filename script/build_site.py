@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the project website and copy the unmodified browser app for Pages."""
+"""Publish the browser app at the root and localized download pages."""
 
 import html
 import json
@@ -22,7 +22,7 @@ PACKAGES = {
 
 
 def page_path(language):
-    return "" if language == "en" else f"{language}/"
+    return "download/" if language == "en" else f"download/{language}/"
 
 
 def build():
@@ -38,13 +38,14 @@ def build():
     shutil.copy(ROOT / "web/icon.svg", assets / "icon.svg")
     for name in PACKAGES:
         shutil.copy(ROOT / f"docs/assets/download-{name}.svg", assets)
-    # Keep modules, relative paths and hosted WebRTC behavior identical to web/.
+    # Preserve old session links as well as the new root entry point.
+    shutil.copytree(ROOT / "web", OUT, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".*", "README.md", "netlify.toml"))
     shutil.copytree(ROOT / "web", OUT / "app", ignore=shutil.ignore_patterns(".*", "README.md", "netlify.toml"))
     (OUT / ".nojekyll").touch()
 
     for language, locale in LOCALES.items():
         text = messages[language]
-        prefix = "." if language == "en" else ".."
+        prefix = ".." if language == "en" else "../.."
         canonical = f"{BASE}/{page_path(language)}"
         data = {key: html.escape(value, quote=True) for key, value in text.items() if isinstance(value, str)}
         data.update(lang=locale, direction="rtl" if language == "ar" else "ltr", prefix=prefix,
@@ -52,7 +53,7 @@ def build():
         data["alternates"] = "\n  ".join(
             f'<link rel="alternate" hreflang="{tag}" href="{BASE}/{page_path(code)}">'
             for code, tag in LOCALES.items()
-        ) + f'\n  <link rel="alternate" hreflang="x-default" href="{BASE}/">'
+        ) + f'\n  <link rel="alternate" hreflang="x-default" href="{BASE}/download/">'
         data["language_links"] = " ".join(
             f'<a href="{prefix}/{page_path(code)}" lang="{tag}" hreflang="{tag}"'
             + (' aria-current="page"' if code == language else "")
@@ -84,17 +85,44 @@ def build():
             "author": {"@type": "Person", "name": "FedyaLight", "url": "https://github.com/FedyaLight"},
         }, ensure_ascii=False).replace("<", "\\u003c")
         directory = OUT / page_path(language)
-        directory.mkdir(exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
         (directory / "index.html").write_text(template.substitute(data))
+
+        if language == "en":
+            app_schema = json.loads(data["schema"])
+            app_schema["url"] = f"{BASE}/"
+
+    # Metadata is present before JavaScript; the interface localizes on startup.
+    text = messages["en"]
+    schema = json.dumps(app_schema, ensure_ascii=False).replace("<", "\\u003c")
+    metadata = (
+        f'<link rel="canonical" href="{BASE}/">\n'
+        f'  <meta property="og:title" content="{html.escape(text["title"], quote=True)}">\n'
+        f'  <meta property="og:description" content="{html.escape(text["description"], quote=True)}">\n'
+        f'  <meta property="og:url" content="{BASE}/">\n'
+        f'  <meta property="og:type" content="website">\n'
+        f'  <meta property="og:image" content="{BASE}/assets/social.png">\n'
+        f'  <script type="application/ld+json">{schema}</script>\n'
+    )
+    app_html = (OUT / "index.html").read_text().replace("</head>", "  " + metadata + "</head>")
+    (OUT / "index.html").write_text(app_html)
+    # Previously published language URLs also open the app without a redirect.
+    for language in LOCALES:
+        if language == "en":
+            continue
+        directory = OUT / language
+        directory.mkdir(exist_ok=True)
+        (directory / "index.html").write_text(app_html.replace('<head>', '<head>\n  <base href="../">', 1))
 
     (OUT / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + f"  <url><loc>{BASE}/</loc></url>\n"
         + "".join(f"  <url><loc>{BASE}/{page_path(code)}</loc></url>\n" for code in LOCALES)
         + "</urlset>\n"
     )
     shutil.copy(ROOT / "site/robots.txt", OUT / "robots.txt")
     shutil.copy(ROOT / "site/llms.txt", OUT / "llms.txt")
-    print(f"Built {len(LOCALES)} static pages and the browser app in {OUT}")
+    print(f"Built the browser app and {len(LOCALES)} download pages in {OUT}")
 
 
 if __name__ == "__main__":

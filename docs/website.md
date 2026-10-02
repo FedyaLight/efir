@@ -1,8 +1,10 @@
 # Project website
 
 The public website is [fedyalight.github.io/efir](https://fedyalight.github.io/efir/).
-It has static English, Russian, Spanish, Chinese, Hindi and Arabic pages. The
-browser app is copied unchanged to `/app/`; native builds still use `web/`.
+It opens the browser app directly, with a small download link on its home screen.
+Static installation and download pages live at `/download/` in English, Russian,
+Spanish, Chinese, Hindi and Arabic. Existing `/app/` session links still work;
+previous language entry URLs also open the app directly. Native builds use `web/`.
 The existing Netlify app remains independent of this deployment.
 
 Build and preview with Python 3:
@@ -22,9 +24,9 @@ GitHub Actions builds and deploys the site on relevant pushes to `main`.
 Pages contain visible descriptions, installation requirements, FAQs, canonical
 URLs, reciprocal language alternatives and SoftwareApplication structured data
 with a zero-price offer. There are no invented reviews or ratings. A sitemap
-lists the six product pages; session hashes are not search landing pages.
+lists the app home and six download pages; session hashes are not search landing pages.
 
-The pages need no JavaScript or external resources. Downloads link directly to
+The download pages need no JavaScript or external resources. Downloads link directly to
 GitHub releases. `llms.txt` is a small factual index for tools that read it;
 it is not a requirement or a ranking guarantee for ChatGPT.
 

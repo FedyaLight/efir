@@ -218,6 +218,8 @@ kbd { font-family: var(--mono); font-size: 12px; padding: 2px 7px; border-radius
 .role-t small { font-size: 13px; color: var(--muted); line-height: 1.4; }
 .role > .ic { color: var(--faint); }
 .role:hover > .ic { color: var(--ink); }
+.h-download { margin: 18px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.h-download a { color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
 
 .h-notes { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--rule-2); }
 .h-notes > div { padding: 18px 20px 4px 0; }

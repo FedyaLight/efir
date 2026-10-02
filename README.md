@@ -13,8 +13,8 @@ phones. The static web version uses PeerJS/WebRTC and runs on ordinary HTTPS hos
 It currently requires a working direct device connection; see
 [web connection diagnostics and relay limitations](docs/usage.md#connecting-through-the-website).
 
-[Website](https://fedyalight.github.io/efir/) ·
-[Open in your browser](https://fedyalight.github.io/efir/app/) ·
+[Open in your browser](https://fedyalight.github.io/efir/) ·
+[Apps and installation](https://fedyalight.github.io/efir/download/) ·
 [All releases](https://github.com/FedyaLight/efir/releases) ·
 [User guide](docs/usage.md)
 

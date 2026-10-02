@@ -20,7 +20,8 @@ Efir's original source is MIT-licensed; dependencies retain their own licenses.
 ## Links
 
 - [Project website](https://fedyalight.github.io/efir/)
-- [Browser app](https://fedyalight.github.io/efir/app/)
+- [Browser app](https://fedyalight.github.io/efir/)
+- [Applications and installation](https://fedyalight.github.io/efir/download/)
 - [Source and README](https://github.com/FedyaLight/efir)
 - [Downloads and checksums](https://github.com/FedyaLight/efir/releases/latest)
 - [Usage](https://github.com/FedyaLight/efir/blob/main/docs/usage.md)
