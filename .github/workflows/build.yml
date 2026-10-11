@@ -52,7 +52,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $release = 'desktop/target/release'
+          $release = (Resolve-Path 'desktop/target/release').Path
           $portable = "$release/bundle/portable/Efir-Windows-x64"
           New-Item -ItemType Directory -Force -Path $portable | Out-Null
           Copy-Item "$release/efir.exe" $portable
@@ -66,19 +66,25 @@ jobs:
           Windows 10/11 x64 and Microsoft WebView2 Runtime are required.
           Vosk language models are selected separately in voice settings.
           '@ | Set-Content "$portable/START.txt" -Encoding utf8
-          $app = Start-Process "$portable/efir.exe" -WorkingDirectory $portable -PassThru
+          $stdout = "$release/portable-stdout.log"
+          $stderr = "$release/portable-stderr.log"
+          $app = Start-Process "$portable/efir.exe" -WorkingDirectory $portable -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           try {
             $ready = $false
+            $diagnostic = 'No HTTP response yet'
             for ($attempt = 0; $attempt -lt 30; $attempt++) {
               if ($app.HasExited) { throw "Portable app exited: $($app.ExitCode)" }
               try {
-                $info = Invoke-RestMethod 'http://localhost:8765/efir-local.json' -TimeoutSec 1
+                $info = Invoke-RestMethod 'http://127.0.0.1:8765/efir-local.json' -NoProxy -TimeoutSec 1
+                $diagnostic = $info | ConvertTo-Json -Compress
                 if ($info.local -eq $true -and $info.platform -eq 'windows' -and $info.version -eq $version) { $ready = $true; break }
-              } catch { }
+              } catch { $diagnostic = $_.Exception.Message }
               Start-Sleep -Milliseconds 500
             }
-            if (-not $ready) { throw 'Portable app did not start its local server' }
+            if (-not $ready) { throw "Portable app did not start its local server: $diagnostic" }
           } finally {
+            Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object OwningProcess -eq $app.Id | Format-Table LocalAddress, LocalPort, OwningProcess
+            Get-Content $stdout, $stderr -ErrorAction SilentlyContinue
             if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
           }
           Compress-Archive -Path $portable -DestinationPath "$release/bundle/portable/Efir-Windows-x64.zip"
