@@ -28,7 +28,7 @@ async function waitFor(fn, detail, ms = 8000) {
   while (Date.now() - start < ms) { if (await fn()) return; await new Promise(r => setTimeout(r, 60)); }
   throw new Error('timeout: ' + detail);
 }
-const cy = async page => page.locator('.scroller').evaluate(el => new DOMMatrix(getComputedStyle(el).transform).m42);
+const cy = async page => page.locator('.preview-primary .scroller, .p-stage .scroller').evaluate(el => new DOMMatrix(getComputedStyle(el).transform).m42);
 try {
   const mc = await context(true), pc = await context();
   const controller = await mc.newPage(), phone = await pc.newPage();
@@ -49,9 +49,12 @@ try {
   await phone.locator('.p-stage').tap();
   await waitFor(async () => await phone.locator('.prompter:not(.playing):not(.ui-hidden)').count() > 0, 'reader tap pauses and reveals controls');
   await phone.locator('[data-a="mirror"]').tap();
-  await waitFor(async () => await controller.evaluate(async () => (await import('./js/store.js')).store.settings().mirrorH === true), 'reader mirror reaches controller settings');
+  await waitFor(async () => await controller.evaluate(async () => Object.values((await import('./js/store.js')).store.displayProfiles()).some(p => p.overrides.mirrorH === true)), 'reader mirror reaches its display profile');
   await phone.locator('[data-a="mirror"]').tap();
-  await waitFor(async () => await controller.evaluate(async () => (await import('./js/store.js')).store.settings().mirrorH === false), 'reader mirror toggles off');
+  await waitFor(async () => await controller.evaluate(async () => Object.values((await import('./js/store.js')).store.displayProfiles()).some(p => p.overrides.mirrorH === false)), 'reader mirror profile toggles off');
+  await phone.locator('[data-a="display"]').tap();
+  await phone.locator('[data-display-reset]').click();
+  await phone.locator('.modal-x').click(); await phone.locator('.modal-wrap').waitFor({ state: 'detached' });
   const fontSize = controller.locator('[data-k="fontSize"] input');
   await fontSize.fill('44'); await fontSize.dispatchEvent('input');
   await waitFor(async () => await phone.locator('.text').evaluate(el => getComputedStyle(el).fontSize) === '44px', 'settings sync');

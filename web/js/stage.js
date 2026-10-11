@@ -1,5 +1,6 @@
 import { t, translateUI, onLanguageChange } from './i18n.js';
 import { normWord, wordChunks } from './words.js';
+import { layoutSignature } from './display-profile.js';
 import { localMode } from './environment.js';
 export { normWord } from './words.js';
 // Stage renders both the reader and controller preview. The preview uses
@@ -170,6 +171,8 @@ export class Stage {
     st.setProperty('--nc', s.noteColor);
     st.setProperty('--mc', s.markerColor);
     st.setProperty('--side', (s.sidePad * this.w / 100) + 'px');
+    st.setProperty('--left', ((s.leftPad ?? s.sidePad) * this.w / 100) + 'px');
+    st.setProperty('--right', ((s.rightPad ?? s.sidePad) * this.w / 100) + 'px');
     st.setProperty('--top', (s.topPad * this.h / 100) + 'px');
     st.setProperty('--bottom', (s.bottomPad * this.h / 100) + 'px');
     st.setProperty('--my', (s.markerPos * this.h / 100) + 'px');
@@ -218,8 +221,14 @@ export class Stage {
       const e = this.wordEls[i];
       this.tops[i] = e.offsetTop + e.offsetHeight / 2;
     }
+    this.lines = [];
+    for (let i = 0; i < n; i++) {
+      if (!i || Math.abs(this.tops[i] - this.tops[i - 1]) > 1) this.lines.push(i);
+    }
     this.secTops = [...this.text.querySelectorAll('.sec')].map(e => e.offsetTop);
   }
+
+  get layout() { return layoutSignature(this.s || {}); }
 
   get markerY() { return (this.s ? this.s.markerPos : 40) * this.h / 100; }
 

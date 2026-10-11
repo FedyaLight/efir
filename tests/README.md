@@ -6,7 +6,7 @@ do not point them at a controller containing real scripts.
 
 ## HTTP, WebSocket and browser behavior
 
-Start either harness on a separate port. Both import the production server:
+Start either harness on a separate port. Both import the production server. Run browser suites sequentially or give each suite its own server port: the native server has one shared session regardless of room code.
 
 ```sh
 swift run --package-path tests/ServerHarness --scratch-path work/server-build \
@@ -28,6 +28,7 @@ EFIR_URL=http://localhost:18765 EFIR_LAN_URL=http://YOUR_WIFI_IP:18765 \
   node tests/performance.mjs
 EFIR_URL=http://localhost:18765 node tests/layout.mjs
 EFIR_URL=http://localhost:18765 node tests/remotes.mjs
+EFIR_URL=http://localhost:18765 node tests/displays.mjs
 node tests/hosting.mjs
 ```
 
@@ -40,6 +41,7 @@ On macOS, `http://0.0.0.0:18765` can provide an insecure Chromium context for
 | `browser.mjs` | Sync, preview, reconnect, tap playback, mirror, voice, languages, backups, HTTP screen protection |
 | `hosting.mjs` | Static hosting without marker, real PeerJS broker, delayed cross-profile WebRTC, established link during broker loss |
 | `performance.mjs` | Actual frame, storage, transport and main-thread activity in Chromium |
+| `displays.mjs` | Three readers with different wraps, format shading, actual preview geometry, targeted calibration, duplicate links, seeking, reload, rotation, leader failover and stale preview recovery |
 | `remotes.mjs` | Held key edges, modified keys, button learning, saved mappings, editing/dialog guards, nudge release, browser Gamepad signals |
 | `layout.mjs` | Six UI languages, light/dark, narrow/landscape/tablet/desktop, dialogs, icon-only exit and fullscreen labels |
 
