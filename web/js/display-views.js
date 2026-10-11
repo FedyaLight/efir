@@ -1,11 +1,16 @@
 import { t } from './i18n.js';
 import { Stage, Engine } from './stage.js';
 import { FrameLoop } from './frames.js';
+import { platform } from './platform.js';
 import { restoreSession } from './session.js';
 import { cleanDisplayProfile, displaySettings, DISPLAY_FIELDS } from './display-profile.js';
 import { modal } from './ui.js';
 
 const esc = value => String(value).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function restorePreview(record) {
+  restoreSession(record.stage, record.engine, record.state);
+  record.engine.voiceLive = record.state.voiceState === 'hearing';
+}
 export const screenId = peer => peer?.hello?.displayId || peer?.id;
 export function profileDialog(profile, settings, change) {
   let current = cleanDisplayProfile(profile);
@@ -67,6 +72,12 @@ export class DisplayViews {
     this.host = host; this.configure = configure; this.profile = profile; this.ready = ready;
     this.active = true; this.records = new Map(); this.primary = null; this.script = ''; this.settings = null;
     this.staleTimer = setInterval(() => this.checkStale(), 1000);
+    this.onVisible = () => {
+      if (!platform.visible || !this.active) return;
+      for (const record of this.records.values()) if (record.peer && record.state && !record.stale) restorePreview(record);
+    };
+    document.addEventListener('visibilitychange', this.onVisible);
+    platform.events.addEventListener('visible', this.onVisible);
   }
   sync(peers, primary, settings, script, mirror) {
     this.primary = primary; this.settings = settings; this.script = script; this.mirror = mirror;
@@ -123,19 +134,21 @@ export class DisplayViews {
     const p = record.peer, profile = p ? this.profile(p) : null;
     if (p) record.name = profile.name || p.hello?.name || t('Суфлёр');
     record.el.classList.toggle('offline', !p);
-    record.el.querySelector('.screen-label').textContent = `${record.name || t('Суфлёр')} · ${record.stage.w}×${record.stage.h}`;
-    record.el.querySelector('.screen-ready').textContent = !p ? t('Отключён — последний кадр') : !record.state ? t('Синхронизация…') : record.stale ? t('Нет свежих данных — последний кадр') : this.ready(p);
-    record.el.querySelector('.screen-config').disabled = !p;
-    record.el.querySelector('.screen-config').textContent = t('Настройки этого экрана');
+    const text = (selector, value) => { const el = record.el.querySelector(selector); if (el.textContent !== value) el.textContent = value; };
+    text('.screen-label', `${record.name || t('Суфлёр')} · ${record.stage.w}×${record.stage.h}`);
+    text('.screen-ready', !p ? t('Отключён — последний кадр') : !record.state ? t('Синхронизация…') : record.stale ? t('Нет свежих данных — последний кадр') : this.ready(p));
+    const button = record.el.querySelector('.screen-config');
+    if (button.disabled !== !p) button.disabled = !p;
+    text('.screen-config', t('Настройки этого экрана'));
   }
   state(peer, state) {
     const record = this.records.get(screenId(peer)); if (!record) return;
-    record.state = state; record.seen = performance.now(); record.stale = false; record.el.classList.remove('stale');
+    record.state = state; record.seen = performance.now();
+    if (record.stale) { record.stale = false; record.el.classList.remove('stale'); }
     record.stage.setViewport(state.vw, state.vh); this.label(record);
-    if (!this.active) return;
+    if (!this.active || !platform.visible) return;
     record.frames.setActive(true);
-    restoreSession(record.stage, record.engine, state);
-    record.engine.voiceLive = state.voiceState === 'hearing';
+    restorePreview(record);
     record.frames.request();
   }
   fit(width, height, others, compare) {
@@ -154,7 +167,7 @@ export class DisplayViews {
       const enabled = active && !!record.peer && !!record.state && !record.stale;
       if (enabled && !record.frames.active) {
         record.stage.invalidate();
-        if (record.state && record.peer) restoreSession(record.stage, record.engine, record.state);
+        if (record.state && record.peer) restorePreview(record);
       }
       record.frames.setActive(enabled);
     }
@@ -169,5 +182,10 @@ export class DisplayViews {
     }
   }
   stages() { return [...this.records.values()].filter(r => r.peer).map(r => r.stage); }
-  destroy() { clearInterval(this.staleTimer); for (const r of this.records.values()) { r.frames.destroy(); r.stage.destroy(); } this.records.clear(); }
+  destroy() {
+    clearInterval(this.staleTimer);
+    document.removeEventListener('visibilitychange', this.onVisible);
+    platform.events.removeEventListener('visible', this.onVisible);
+    for (const r of this.records.values()) { r.frames.destroy(); r.stage.destroy(); } this.records.clear();
+  }
 }

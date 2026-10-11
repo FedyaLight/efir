@@ -54,6 +54,11 @@ try {
   await duplicate.locator('.prompter.has-script.has-ctl').waitFor();
   await wait(async () => duplicate.url() !== b.url(), 'duplicate display link receives a distinct identity');
   await duplicate.close(); await ctl.reload(); await ctl.locator('.ctl.has-prompter').waitFor();
+  // Reconnect order is not a screen identity. Select the source layout
+  // explicitly before asserting its relationship to the other previews.
+  await profile(a, a.locator('[data-a="display"]'), { name: 'Камера 1' });
+  await wait(async () => (await ctl.locator('.pm-screen').innerText()).includes('Камера 1'), 'named leading screen appears');
+  await ctl.locator('.pm-screen').selectOption({ label: 'Камера 1' });
   const portrait = await context(500, 900); await portrait.goto(base + '/?screen=portrait#/p/MULTI');
   await portrait.locator('.prompter.has-script.has-ctl').waitFor();
   await wait(async () => await ctl.locator('.pm-screen option').count() === 3, 'three screens');

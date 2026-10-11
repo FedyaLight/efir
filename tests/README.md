@@ -40,7 +40,7 @@ On macOS, `http://0.0.0.0:18765` can provide an insecure Chromium context for
 | `relay.mjs` | MIME, ETag/HEAD, exact relay, no echo, ping/pong, fragmented messages |
 | `browser.mjs` | Sync, preview, reconnect, tap playback, mirror, voice, languages, backups, HTTP screen protection |
 | `hosting.mjs` | Static hosting without marker, real PeerJS broker, delayed cross-profile WebRTC, established link during broker loss |
-| `performance.mjs` | Actual frame, storage, transport and main-thread activity in Chromium |
+| `performance.mjs` | Three-screen frame, storage, transport and main-thread activity; hidden Gamepad and reduced-motion/offscreen demo lifecycle |
 | `displays.mjs` | Three readers with different wraps, format shading, actual preview geometry, targeted calibration, duplicate links, seeking, reload, rotation, leader failover and stale preview recovery |
 | `remotes.mjs` | Held key edges, modified keys, button learning, saved mappings, editing/dialog guards, nudge release, browser Gamepad signals |
 | `layout.mjs` | Six UI languages, light/dark, narrow/landscape/tablet/desktop, dialogs, icon-only exit and fullscreen labels |
