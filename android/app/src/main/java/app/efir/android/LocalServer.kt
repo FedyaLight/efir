@@ -6,7 +6,7 @@ import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONObject
@@ -20,9 +20,9 @@ class LocalServer(
 ) : NanoWSD(address, port) {
     private val clients = ConcurrentHashMap.newKeySet<Client>()
     private val deadline =
-        Executors.newScheduledThreadPool(1) { task ->
+        ScheduledThreadPoolExecutor(1) { task ->
             Thread(task, "Efir socket deadline").apply { isDaemon = true }
-        }
+        }.apply { setRemoveOnCancelPolicy(true) }
     val clientCount
         get() = clients.size
 

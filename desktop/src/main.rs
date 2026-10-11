@@ -9,7 +9,10 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, OnceLock,
+    },
     time::Duration,
 };
 use tauri::{
@@ -61,8 +64,10 @@ fn js(window: &WebviewWindow, script: &str, args: Value) {
 }
 fn translate(state: &State, source: &str) -> String {
     let lang = state.prefs.lock().unwrap().language.clone();
-    let catalogue: Value =
-        serde_json::from_str(include_str!("../../web/locales/messages.json")).unwrap_or_default();
+    static CATALOGUE: OnceLock<Value> = OnceLock::new();
+    let catalogue = CATALOGUE.get_or_init(|| {
+        serde_json::from_str(include_str!("../../web/locales/messages.json")).unwrap_or_default()
+    });
     let index = catalogue["languages"]
         .as_array()
         .and_then(|list| list.iter().position(|code| code == &lang))
@@ -281,7 +286,22 @@ fn main() {
             .on_download(|_,event| { if let DownloadEvent::Requested {destination,..}=event { let name=destination.file_name().unwrap_or_default().to_string_lossy().into_owned();if let Some(path)=rfd::FileDialog::new().set_file_name(name).save_file(){*destination=path;}else{return false;} }true })
             .build()?;
         let closed=window.clone(); let app_for_close=app.handle().clone();
-        window.on_window_event(move |event| if let WindowEvent::CloseRequested {api,..}=event { api.prevent_close();app_for_close.state::<State>().speech.lock().unwrap().stop();js(&closed,"() => { window.efirNative?.onState?.('off'); window.efirNative?.onVisible?.(false); }",Value::Null);let _=closed.hide(); });
+        let visible = AtomicBool::new(true);
+        window.on_window_event(move |event| match event {
+            WindowEvent::CloseRequested {api,..} => {
+                api.prevent_close(); visible.store(false, Ordering::Relaxed);
+                app_for_close.state::<State>().speech.lock().unwrap().stop();
+                js(&closed,"() => { window.efirNative?.onState?.('off'); window.efirNative?.onVisible?.(false); }",Value::Null);
+                let _=closed.hide();
+            }
+            WindowEvent::Resized(_) | WindowEvent::Focused(_) => {
+                let active = closed.is_visible().unwrap_or(true) && !closed.is_minimized().unwrap_or(false);
+                if visible.swap(active, Ordering::Relaxed) != active {
+                    js(&closed,"active => window.efirNative?.onVisible?.(active)",json!(active));
+                }
+            }
+            _ => {}
+        });
         TrayIconBuilder::with_id("efir").icon(app.default_window_icon().unwrap().clone()).tooltip("Efir").on_menu_event(|app,event|match event.id().as_ref(){"open"=>show(app),"quit"=>app.exit(0),_=>{}}).build(app)?;
         rebuild_menu(app.handle()).map_err(std::io::Error::other)?;
         let handle=app.handle().clone();tauri::async_runtime::spawn(async move {
