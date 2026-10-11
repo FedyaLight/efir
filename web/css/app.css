@@ -710,3 +710,12 @@ kbd { font-family: var(--mono); font-size: 12px; padding: 2px 7px; border-radius
 :root:is([lang="ar"], [lang="hi"]) :is(.h-intro h1, .h-meta, .h-step, .demo-head, .link-btn, .panel-h h3, .tk > span, .speed-val small, .p-chip b, .p-wait-or, .paused-tag, .voice-tag) { letter-spacing: normal; }
 .text:is(:lang(ar), :lang(hi)) .sec { letter-spacing: normal; }
 @media (max-width: 600px) { .ctl-top .ui-language { max-width: 98px; min-width: 64px; } .h-meta { display: none; } }
+
+/* Device-local remote calibration. */
+.remote-body > .muted { margin: 12px 0; }
+.remote-body > .chk { align-items: center; white-space: normal; }
+.remote-learn { min-height: 42px; padding: 10px; background: var(--surface-2); }
+.remote-actions { margin-bottom: 16px; }
+.remote-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--rule); align-items: center; }
+.remote-bindings { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; }
+.remote-bindings .link-btn { max-width: 100%; overflow-wrap: anywhere; }

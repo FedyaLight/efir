@@ -1,4 +1,5 @@
 import { t, translateUI, onLanguageChange, languagePicker, countLabel } from './i18n.js';
+import { mountRemotes } from './remotes.js';
 import { FrameLoop } from './frames.js';
 import { localMode, nativeVoice, hostName } from './environment.js';
 import { platform } from './platform.js';
@@ -598,24 +599,17 @@ export function mountController(root, code) {
   track.addEventListener('pointermove', (e) => { if (scrubbing) scrubTo(e); });
   track.addEventListener('pointerup', () => { scrubbing = false; flushSeek(); });
 
-  // Keyboard and presentation remotes
-  const onKey = (e) => {
-    if (e.target.closest('input:not([type=range]):not([type=checkbox]),textarea,select,[contenteditable]')) return;
-    if (document.querySelector('.modal-wrap')) return;
-    const k = e.key;
-    if (k === ' ' || k === 'b' || k === 'B' || k === '.') { e.preventDefault(); cmd('toggle'); }
-    else if (k === 'ArrowUp') { e.preventDefault(); cmd('speed', { v: engine.speed + 0.2 }); }
-    else if (k === 'ArrowDown') { e.preventDefault(); cmd('speed', { v: engine.speed - 0.2 }); }
-    else if (k === 'ArrowRight' || k === 'PageDown') { e.preventDefault(); cmd('section', { dir: 1 }); }
-    else if (k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); cmd('section', { dir: -1 }); }
-    else if (k === 'Home') { e.preventDefault(); cmd('start'); }
-    else if (k === 'v' || k === 'V' || k === 'м' || k === 'М') voiceToggle();
-    else if (k === 'm' || k === 'M' || k === 'ь' || k === 'Ь') set('mirrorH', !settings.mirrorH);
-    else if (k === 'e' || k === 'E' || k === 'у' || k === 'У') setView(el.dataset.view === 'edit' ? 'live' : 'edit');
-    else if (k === '=' || k === '+') set('fontSize', Math.min(240, settings.fontSize + 4));
-    else if (k === '-' || k === '_') set('fontSize', Math.max(16, settings.fontSize - 4));
-  };
-  document.addEventListener('keydown', onKey);
+  const remotes = mountRemotes({
+    toggle: () => cmd('toggle'), start: () => cmd('start'),
+    faster: () => cmd('speed', { v: engine.speed + .2 }), slower: () => cmd('speed', { v: engine.speed - .2 }),
+    next: () => cmd('section', { dir: 1 }), prev: () => cmd('section', { dir: -1 }),
+    forward: held => cmd('nudge', { v: held ? settings.fontSize * settings.lineHeight * 3.5 : 0 }),
+    back: held => cmd('nudge', { v: held ? -settings.fontSize * settings.lineHeight * 3.5 : 0 }),
+    fontUp: () => set('fontSize', Math.min(240, settings.fontSize + 4)),
+    fontDown: () => set('fontSize', Math.max(16, settings.fontSize - 4)),
+    mirror: () => set('mirrorH', !settings.mirrorH), voice: voiceToggle,
+    editor: () => setView(el.dataset.view === 'edit' ? 'live' : 'edit'),
+  });
 
   // Tabs
   function setView(v) {
@@ -1026,14 +1020,7 @@ export function mountController(root, code) {
     const w = window.open(roomUrl('p', code), 'efir-prompter-' + code, 'popup,width=1280,height=760');
     if (!w) toast(t('Браузер заблокировал окно — разрешите всплывающие окна'), 'bad');
   }
-  function openKeys() {
-    const rows = [
-      [t('Пробел · B · .'), t('Пуск / пауза')], ['↑ / ↓', t('Скорость')], ['← / →, PgUp / PgDn', t('Разделы (кликеры презентаций)')],
-      ['Home', t('В начало')], ['V', t('Ведение голосом')], ['M', t('Зеркало')], ['+ / −', t('Размер шрифта')], ['E', t('Редактор / эфир')],
-    ];
-    modal(`<h2>Горячие клавиши</h2><div class="keys">${rows.map(([k, d]) => `<div><kbd>${k}</kbd><span>${d}</span></div>`).join('')}</div>
-      <p class="fine">Те же клавиши работают на экране суфлёра — можно подключить Bluetooth‑кликер или клавиатуру прямо к нему.</p>`);
-  }
+  function openKeys() { remotes.open(); }
 
   // Drawing
   const playBtn = $('.play-btn'), cdNum = $('.cd-num');
@@ -1113,7 +1100,7 @@ export function mountController(root, code) {
       clearTimeout(edTimer); clearTimeout(saveTimer);
       document.removeEventListener('visibilitychange', saveBeforeHide);
       platform.events.removeEventListener('visible', saveBeforeHide);
-      document.removeEventListener('keydown', onKey);
+      remotes.destroy();
       tracker.stop();
       platform.send('sessionActive', { active: false });
       store.saveScripts(scripts);

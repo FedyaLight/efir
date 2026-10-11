@@ -8,6 +8,7 @@ import { captureSession, restoreSession } from './session.js';
 
 import { store, DEFAULTS } from './store.js';
 import { Stage, Engine } from './stage.js';
+import { mountRemotes } from './remotes.js';
 import { FrameLoop } from './frames.js';
 import { Room } from './net.js';
 import { VoiceTracker, voiceSupported } from './voice.js';
@@ -78,6 +79,7 @@ export function mountPrompter(root, code) {
         <div class="p-chip"><i class="dot"></i><b>${code}</b><span class="st"></span></div>
         <div class="p-top-r">
           ${languagePicker()}
+          <button class="icon-btn" data-a="keys" title="Пульты и кнопки" aria-label="Пульты и кнопки">${icon('keyboard')}</button>
           <button class="icon-btn" data-a="qr" title="QR для пульта">${icon('qr')}</button>
           <button class="icon-btn" data-a="mirror" title="Зеркало ↔" aria-label="Зеркало ↔" aria-pressed="false">${icon('mirror')}</button>
           <button class="icon-btn" data-a="fs" title="Полный экран" aria-label="Полный экран" aria-pressed="false">${icon('fullscreen')}</button>
@@ -340,7 +342,8 @@ export function mountPrompter(root, code) {
     if (!b) return;
     showUI();
     const a = b.dataset.a;
-    if (a === 'fs') toggleFullscreen();
+    if (a === 'keys') remotes.open();
+    else if (a === 'fs') toggleFullscreen();
     else if (a === 'mirror') {
       applySettings({ ...settings, mirrorH: !settings.mirrorH });
       room.send('mirror', { value: settings.mirrorH });
@@ -409,21 +412,15 @@ export function mountPrompter(root, code) {
     lastReady = sig; room.send('readiness', { ready });
   }
 
-  // Keyboard and presentation remotes
-  const onKey = (e) => {
-    if (e.target.closest('input,textarea,select')) return;
-    const k = e.key;
-    if (k === ' ' || k === 'b' || k === 'B' || k === '.' || k === 'Enter') { e.preventDefault(); togglePlayback(); }
-    else if (k === 'ArrowUp') { e.preventDefault(); command('speedBy', { v: 0.2 }); }
-    else if (k === 'ArrowDown') { e.preventDefault(); command('speedBy', { v: -0.2 }); }
-    else if (k === 'ArrowRight' || k === 'PageDown') { e.preventDefault(); section(1); }
-    else if (k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); section(-1); }
-    else if (k === 'Home') { command('start'); }
-    else if (k === 'f' || k === 'F' || k === 'а' || k === 'А') toggleFullscreen();
-    else return;
-    speedV.textContent = engine.speed.toFixed(1);
-  };
-  document.addEventListener('keydown', onKey);
+  const remotes = mountRemotes({
+    toggle: togglePlayback, start: () => command('start'),
+    faster: () => command('speedBy', { v: .2 }), slower: () => command('speedBy', { v: -.2 }),
+    next: () => section(1), prev: () => section(-1),
+    forward: held => command('nudge', { v: held ? settings.fontSize * settings.lineHeight * 3.5 : 0 }),
+    back: held => command('nudge', { v: held ? -settings.fontSize * settings.lineHeight * 3.5 : 0 }),
+    fullscreen: toggleFullscreen,
+    mirror: () => { applySettings({ ...settings, mirrorH: !settings.mirrorH }); room.send('mirror', { value: settings.mirrorH }); },
+  });
 
   // Drawing and state exchange
   let lastSent = 0, prevSig = '';
@@ -479,7 +476,7 @@ export function mountPrompter(root, code) {
       clearTimeout(longPress);
       document.removeEventListener('visibilitychange', onVisibility);
       platform.events.removeEventListener('visible', onVisibility);
-      document.removeEventListener('keydown', onKey);
+      remotes.destroy();
       tracker.stop();
       release();
       document.removeEventListener('fullscreenchange', fullscreenChanged);

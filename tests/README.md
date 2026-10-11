@@ -27,6 +27,7 @@ EFIR_URL=http://localhost:18765 EFIR_LAN_URL=http://YOUR_WIFI_IP:18765 \
 EFIR_URL=http://localhost:18765 EFIR_LAN_URL=http://YOUR_WIFI_IP:18765 \
   node tests/performance.mjs
 EFIR_URL=http://localhost:18765 node tests/layout.mjs
+EFIR_URL=http://localhost:18765 node tests/remotes.mjs
 node tests/hosting.mjs
 ```
 
@@ -39,6 +40,7 @@ On macOS, `http://0.0.0.0:18765` can provide an insecure Chromium context for
 | `browser.mjs` | Sync, preview, reconnect, tap playback, mirror, voice, languages, backups, HTTP screen protection |
 | `hosting.mjs` | Static hosting without marker, real PeerJS broker, delayed cross-profile WebRTC, established link during broker loss |
 | `performance.mjs` | Actual frame, storage, transport and main-thread activity in Chromium |
+| `remotes.mjs` | Held key edges, modified keys, button learning, saved mappings, editing/dialog guards, nudge release, browser Gamepad signals |
 | `layout.mjs` | Six UI languages, light/dark, narrow/landscape/tablet/desktop, dialogs, icon-only exit and fullscreen labels |
 
 `hosting.mjs` needs internet for signaling. It delays negotiation messages by 12
