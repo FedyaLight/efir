@@ -1,5 +1,6 @@
 // Check a running local server using an isolated test session.
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 const base = process.env.EFIR_URL || 'http://localhost:8765';
 const meta = await fetch(base + '/efir-local.json');
 assert.equal((await meta.json()).local, true);
@@ -20,8 +21,28 @@ const head = await fetch(base + '/js/net.js', { method: 'HEAD' });
 assert.equal(head.headers.get('etag'), etag);
 assert.equal(head.headers.get('content-length'), asset.headers.get('content-length'));
 const manifest = await (await fetch(base + '/vendor/SOURCES.json')).json();
-const font = await fetch(base + '/vendor/' + manifest.find(item => item.file.endsWith('.woff2')).file);
+const fontFile = manifest.find(item => item.file.endsWith('.woff2')).file;
+const font = await fetch(base + '/vendor/' + fontFile);
 assert.ok(font.headers.get('cache-control').includes('immutable'));
+// Verify actual asset bytes, then slices against the independent local fixture.
+const bytes = new Uint8Array(await font.arrayBuffer());
+assert.deepEqual(bytes, new Uint8Array(await readFile(new URL('../web/vendor/' + fontFile, import.meta.url))));
+if (font.headers.get('accept-ranges') === 'bytes') {
+  const size = bytes.length;
+  for (const [range, start, end] of [
+    ['bytes=0-31', 0, 31],
+    ['bytes=7-', 7, size - 1],
+    ['bytes=-17', size - 17, size - 1],
+  ]) {
+    const partial = await fetch(font.url, { headers: { Range: range } });
+    assert.equal(partial.status, 206);
+    assert.equal(partial.headers.get('content-range'), `bytes ${start}-${end}/${size}`);
+    assert.deepEqual(new Uint8Array(await partial.arrayBuffer()), bytes.slice(start, end + 1));
+  }
+  const invalid = await fetch(font.url, { headers: { Range: `bytes=${size}-` } });
+  assert.equal(invalid.status, 416);
+  assert.equal(invalid.headers.get('content-range'), `bytes */${size}`);
+}
 async function client(room) {
   const ws = new WebSocket(base.replace(/^http/, 'ws') + '/ws?room=' + room);
   const queue = [];

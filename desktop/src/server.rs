@@ -21,6 +21,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 use tokio::{
+    io::{AsyncReadExt, AsyncSeekExt},
     net::TcpListener,
     sync::{mpsc, watch},
 };
@@ -339,10 +340,26 @@ async fn site(State(site): State<Site>, method: Method, uri: Uri, headers: Heade
     let body = if method == Method::HEAD {
         Body::empty()
     } else {
-        match tokio::fs::read(file).await {
-            Ok(bytes) => Body::from(bytes[start as usize..(start + len) as usize].to_vec()),
-            Err(_) => return StatusCode::NOT_FOUND.into_response(),
+        let Ok(mut input) = tokio::fs::File::open(file).await else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        if input.seek(std::io::SeekFrom::Start(start)).await.is_err() {
+            return StatusCode::NOT_FOUND.into_response();
         }
+        // Poll-driven chunks follow HTTP backpressure. A Range request reads
+        // only its slice, and slow downloads do not retain whole asset copies.
+        Body::from_stream(futures_util::stream::try_unfold(
+            (input, len),
+            |(mut input, remaining)| async move {
+                if remaining == 0 {
+                    return Ok::<_, std::io::Error>(None);
+                }
+                let mut chunk = vec![0; remaining.min(64 * 1024) as usize];
+                input.read_exact(&mut chunk).await?;
+                let remaining = remaining - chunk.len() as u64;
+                Ok(Some((chunk, (input, remaining))))
+            },
+        ))
     };
     let mut result = response(
         if partial {

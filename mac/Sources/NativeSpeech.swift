@@ -17,10 +17,13 @@ final class NativeSpeech {
     private var retry: Task<Void, Never>?
     private var lang = "ru-RU"
     private var lastHeard = Date.distantPast
+    private var lastState = ""
+    private var lastMessage = ""
 
     func start(lang: String, in webView: WKWebView) {
         stop()
         self.webView = webView
+        lastState = ""
         self.lang = lang
         active = true
         let session = generation
@@ -171,9 +174,13 @@ final class NativeSpeech {
     }
 
     private func state(_ value: String, _ message: String = "", _ values: [String: String] = [:]) {
+        let translated = l(message, values)
+        guard value != lastState || translated != lastMessage else { return }
+        lastState = value
+        lastMessage = translated
         webView?.callAsyncJavaScript(
             "window.efirNative?.onState(state, message)",
-            arguments: ["state": value, "message": l(message, values)], in: nil, in: .page,
+            arguments: ["state": value, "message": translated], in: nil, in: .page,
             completionHandler: nil)
     }
 }
