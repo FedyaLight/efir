@@ -3152,6 +3152,134 @@
       "下载应用",
       "ऐप डाउनलोड करें",
       "تنزيل التطبيق"
+    ],
+    "Пульты и кнопки": [
+      "Пульты и кнопки",
+      "Remotes and buttons",
+      "Mandos y botones",
+      "遥控器和按钮",
+      "रिमोट और बटन",
+      "أجهزة التحكم والأزرار"
+    ],
+    "Прокрутка вперёд": [
+      "Прокрутка вперёд",
+      "Scroll forward",
+      "Desplazar hacia adelante",
+      "向前滚动",
+      "आगे स्क्रॉल करें",
+      "تمرير للأمام"
+    ],
+    "Прокрутка назад": [
+      "Прокрутка назад",
+      "Scroll backward",
+      "Desplazar hacia atrás",
+      "向后滚动",
+      "पीछे स्क्रॉल करें",
+      "تمرير للخلف"
+    ],
+    "Увеличить шрифт": [
+      "Увеличить шрифт",
+      "Increase font size",
+      "Aumentar tamaño de letra",
+      "增大字号",
+      "अक्षर का आकार बढ़ाएँ",
+      "تكبير الخط"
+    ],
+    "Уменьшить шрифт": [
+      "Уменьшить шрифт",
+      "Decrease font size",
+      "Reducir tamaño de letra",
+      "减小字号",
+      "अक्षर का आकार घटाएँ",
+      "تصغير الخط"
+    ],
+    "Не выполнять действие": [
+      "Не выполнять действие",
+      "Do nothing",
+      "No hacer nada",
+      "不执行操作",
+      "कोई कार्रवाई नहीं",
+      "عدم تنفيذ إجراء"
+    ],
+    "Настройки пульта сохраняются только на этом устройстве. Подключите USB или Bluetooth пульт в режиме клавиатуры.": [
+      "Настройки пульта сохраняются только на этом устройстве. Подключите USB или Bluetooth пульт в режиме клавиатуры.",
+      "Remote settings are saved only on this device. Connect a USB or Bluetooth remote in keyboard mode.",
+      "Los ajustes del mando se guardan solo en este dispositivo. Conecte un mando USB o Bluetooth en modo teclado.",
+      "遥控设置仅保存在此设备上。请连接处于键盘模式的 USB 或蓝牙遥控器。",
+      "रिमोट सेटिंग केवल इस डिवाइस पर सहेजी जाती हैं। USB या Bluetooth रिमोट को कीबोर्ड मोड में जोड़ें।",
+      "تُحفظ إعدادات التحكم على هذا الجهاز فقط. وصّل جهاز USB أو Bluetooth في وضع لوحة المفاتيح."
+    ],
+    "Включить кнопки и оси Gamepad": [
+      "Включить кнопки и оси Gamepad",
+      "Enable Gamepad buttons and axes",
+      "Activar botones y ejes Gamepad",
+      "启用 Gamepad 按钮和轴",
+      "Gamepad बटन और अक्ष सक्षम करें",
+      "تفعيل أزرار ومحاور Gamepad"
+    ],
+    "Нажмите кнопку пульта. Escape — отмена.": [
+      "Нажмите кнопку пульта. Escape — отмена.",
+      "Press a remote button. Escape cancels.",
+      "Pulse un botón del mando. Escape cancela.",
+      "请按遥控按钮。Escape 取消。",
+      "रिमोट बटन दबाएँ। Escape से रद्द करें।",
+      "اضغط زر التحكم. Escape للإلغاء."
+    ],
+    "Выберите действие и назначьте ему кнопку пульта.": [
+      "Выберите действие и назначьте ему кнопку пульта.",
+      "Choose an action and assign a remote button.",
+      "Elija una acción y asígnele un botón del mando.",
+      "选择操作并分配遥控按钮。",
+      "कार्रवाई चुनें और रिमोट बटन निर्धारित करें।",
+      "اختر إجراء وعيّن له زر تحكم."
+    ],
+    "Назначить кнопку": [
+      "Назначить кнопку",
+      "Assign button",
+      "Asignar botón",
+      "分配按钮",
+      "बटन निर्धारित करें",
+      "تعيين زر"
+    ],
+    "Убрать назначение": [
+      "Убрать назначение",
+      "Remove binding",
+      "Eliminar asignación",
+      "移除分配",
+      "निर्धारण हटाएँ",
+      "إزالة التعيين"
+    ],
+    "Сбросить назначения": [
+      "Сбросить назначения",
+      "Reset bindings",
+      "Restablecer asignaciones",
+      "重置分配",
+      "निर्धारण रीसेट करें",
+      "إعادة تعيين الأزرار"
+    ],
+    "Пульт работает, пока это окно активно. Фирменные пульты без режима клавиатуры или Gamepad требуют приложения производителя. Медиаклавиши могут перехватываться системой.": [
+      "Пульт работает, пока это окно активно. Фирменные пульты без режима клавиатуры или Gamepad требуют приложения производителя. Медиаклавиши могут перехватываться системой.",
+      "The remote works while this window is active. Proprietary remotes without keyboard or Gamepad mode require the manufacturer’s app. The system may intercept media keys.",
+      "El mando funciona mientras esta ventana está activa. Los mandos propietarios sin modo teclado o Gamepad necesitan la aplicación del fabricante. El sistema puede interceptar las teclas multimedia.",
+      "遥控器在此窗口活动时工作。不支持键盘或 Gamepad 模式的专用遥控器需要厂商应用。系统可能拦截媒体键。",
+      "रिमोट इस विंडो के सक्रिय होने पर काम करता है। कीबोर्ड या Gamepad मोड के बिना मालिकाना रिमोट को निर्माता का ऐप चाहिए। सिस्टम मीडिया कुंजियों को रोक सकता है।",
+      "يعمل التحكم عندما تكون هذه النافذة نشطة. تتطلب الأجهزة الخاصة بلا وضع لوحة مفاتيح أو Gamepad تطبيق الشركة. قد يعترض النظام مفاتيح الوسائط."
+    ],
+    "Gamepad недоступен в этом браузере. Используйте режим клавиатуры.": [
+      "Gamepad недоступен в этом браузере. Используйте режим клавиатуры.",
+      "Gamepad is unavailable in this browser. Use keyboard mode.",
+      "Gamepad no está disponible en este navegador. Use el modo teclado.",
+      "此浏览器无法使用 Gamepad。请使用键盘模式。",
+      "इस ब्राउज़र में Gamepad उपलब्ध नहीं है। कीबोर्ड मोड इस्तेमाल करें।",
+      "Gamepad غير متاح في هذا المتصفح. استخدم وضع لوحة المفاتيح."
+    ],
+    "Gamepad: {count}. Для обнаружения нажмите кнопку на подключённом пульте.": [
+      "Gamepad: {count}. Для обнаружения нажмите кнопку на подключённом пульте.",
+      "Gamepads: {count}. Press a button on the connected remote to detect it.",
+      "Gamepads: {count}. Pulse un botón del mando conectado para detectarlo.",
+      "Gamepad：{count}。请按已连接遥控器的按钮以检测设备。",
+      "Gamepad: {count}। पहचानने के लिए जुड़े रिमोट का बटन दबाएँ।",
+      "Gamepad: {count}. اضغط زرًا على جهاز التحكم المتصل لاكتشافه."
     ]
   }
 }

@@ -70,7 +70,7 @@ host service.
 ## Features
 
 - Shared text layout in the controller preview and reading screen.
-- Speed control, sections, horizontal/vertical mirrors, countdown and keyboard shortcuts.
+- Speed control, sections, horizontal/vertical mirrors, countdown and [configurable remotes and pedals](docs/remotes.md).
 - Offline native speech on macOS; Vosk on Windows/Linux; on-device recognition on supported Android devices.
 - Script library, TXT/Markdown/DOCX import, settings profiles and portable JSON backups.
 - English, Russian, Spanish, Simplified Chinese, Hindi and Arabic interfaces.
