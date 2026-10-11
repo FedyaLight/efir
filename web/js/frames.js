@@ -3,7 +3,7 @@ import { platform } from './platform.js';
 export class FrameLoop {
   constructor(stage, engine, draw) {
     this.stage = stage; this.engine = engine; this.draw = draw;
-    this.raf = 0; this.last = 0; this.dead = false;
+    this.raf = 0; this.last = 0; this.dead = false; this.active = true;
     this.onVisible = () => {
       cancelAnimationFrame(this.raf); this.raf = 0; this.last = 0;
       if (platform.visible) this.request();
@@ -15,8 +15,15 @@ export class FrameLoop {
     this.request();
   }
 
+  setActive(active) {
+    if (this.active === active) return;
+    this.active = active;
+    cancelAnimationFrame(this.raf); this.raf = 0; this.last = 0;
+    if (active) this.request();
+  }
+
   request() {
-    if (this.dead || this.raf || !platform.visible) return;
+    if (this.dead || !this.active || this.raf || !platform.visible) return;
     this.raf = requestAnimationFrame(t => {
       this.raf = 0;
       const dt = this.last ? Math.min(.1, (t - this.last) / 1000) : 0;

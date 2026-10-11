@@ -1,3 +1,4 @@
+import { cleanDisplayProfile } from './display-profile.js';
 import { t } from './i18n.js';
 import { wordChunks } from './words.js';
 import { localMode } from './environment.js';
@@ -66,6 +67,7 @@ const K = {
   prompterSettings: 'efir.prompter.settings.v1',
   id: 'efir.client.v1',
   profiles: 'efir.profiles.v1',
+  displays: 'efir.displays.v1',
 };
 let savedPrompter = null, savedPosition = null;
 
@@ -143,22 +145,36 @@ export const store = {
   room() { return read(K.room, null); },
   setRoom(r) { write(K.room, r); },
 
-  prompterCache() {
-    const c = read(K.cached, null), p = read(K.position, null);
+  prompterCache(displayId) {
+    const c = read(K.cached, null), p = read(displayId ? K.position + '.' + displayId : K.position, read(K.position, null));
     const sid = c?.script ? c.script.id + ':' + c.script.updated : null;
     if (!c) return null;
     const settings = read(K.prompterSettings, c.settings);
     return { ...c, settings, ...(p?.sid === sid ? { pos: p.pos, speed: p.speed } : {}) };
   },
-  setPrompterCache(c) {
+  setPrompterCache(c, displayId) {
     // Write scripts and settings only on changes; save position separately.
     if (!savedPrompter || c.script !== savedPrompter.script) write(K.cached, { script: c.script });
     if (!savedPrompter || c.settings !== savedPrompter.settings) write(K.prompterSettings, c.settings);
     savedPrompter = { script: c.script, settings: c.settings };
-    const p = { sid: c.script ? c.script.id + ':' + c.script.updated : null, pos: Math.round(c.pos * 100) / 100, speed: c.speed };
-    if (!savedPosition || p.sid !== savedPosition.sid || p.pos !== savedPosition.pos || p.speed !== savedPosition.speed) {
-      write(K.position, p); savedPosition = p;
+    const positionKey = displayId ? K.position + '.' + displayId : K.position;
+    const p = { key: positionKey, sid: c.script ? c.script.id + ':' + c.script.updated : null, pos: Math.round(c.pos * 100) / 100, speed: c.speed };
+    if (!savedPosition || p.key !== savedPosition.key || p.sid !== savedPosition.sid || p.pos !== savedPosition.pos || p.speed !== savedPosition.speed) {
+      write(positionKey, p); savedPosition = p;
     }
+  },
+
+  displayProfiles() {
+    const profiles = read(K.displays, {}), clean = {};
+    for (const [id, profile] of Object.entries(profiles || {}).slice(-64)) {
+      if (/^[a-zA-Z0-9-]{1,80}$/.test(id)) clean[id] = cleanDisplayProfile(profile);
+    }
+    return clean;
+  },
+  saveDisplayProfile(id, profile) {
+    const profiles = this.displayProfiles();
+    delete profiles[id]; profiles[id] = cleanDisplayProfile(profile);
+    write(K.displays, Object.fromEntries(Object.entries(profiles).slice(-64)));
   },
 
   clientId() {

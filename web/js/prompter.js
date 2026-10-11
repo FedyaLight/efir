@@ -1,21 +1,23 @@
 import { t, translateUI, onLanguageChange, languagePicker } from './i18n.js';
 import { localMode, hostName } from './environment.js';
 import { platform } from './platform.js';
-import { captureSession, restoreSession } from './session.js';
+import { captureSession, restoreSession, sessionPosition } from './session.js';
 
 // Reader: owns scroll position. The controller sends commands and receives
 // state at up to 30 updates per second.
 
-import { store, DEFAULTS } from './store.js';
+import { cleanDisplayProfile, displaySettings } from './display-profile.js';
+import { profileDialog } from './display-views.js';
+import { store, DEFAULTS, uid } from './store.js';
 import { Stage, Engine } from './stage.js';
 import { mountRemotes } from './remotes.js';
 import { FrameLoop } from './frames.js';
 import { Room } from './net.js';
 import { VoiceTracker, voiceSupported } from './voice.js';
 import { mountLanHelp } from './lan.js';
-import { icon, qrSvg, toggleFullscreen, keepAwake, roomUrl, toast } from './ui.js';
+import { icon, qrSvg, toggleFullscreen, keepAwake, roomUrl, toast, closeModals } from './ui.js';
 
-const LAYOUT_KEYS = ['fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'uppercase', 'sidePad', 'topPad', 'bottomPad', 'markerPos', 'align'];
+const LAYOUT_KEYS = ['leftPad', 'rightPad', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'uppercase', 'sidePad', 'topPad', 'bottomPad', 'markerPos', 'align'];
 
 export function deviceName() {
   if (platform.native) return platform.name;
@@ -46,8 +48,15 @@ export function relayout(stage, engine, apply) {
 
 export function mountPrompter(root, code) {
   document.body.className = 'is-prompter';
-  const cache = store.prompterCache() || {};
-  let settings = { ...DEFAULTS, ...(cache.settings || {}) };
+  const url = new URL(location.href);
+  let displayId = url.searchParams.get('screen');
+  if (!/^[a-zA-Z0-9-]{1,80}$/.test(displayId || '')) { displayId = uid(); url.searchParams.set('screen', displayId); history.replaceState(null, '', url); }
+  const displayBorn = Date.now();
+  const cache = store.prompterCache(displayId) || {};
+  let profile = cleanDisplayProfile(store.displayProfiles()[displayId]);
+  let baseSettings = { ...DEFAULTS, ...(cache.settings || {}) };
+  let settings = displaySettings(baseSettings, profile);
+  let leader = null, commandTag = '';
   let script = cache.script || null;
   let voiceState = 'off';
   let syncTag = '', pendingSession = null;
@@ -79,6 +88,7 @@ export function mountPrompter(root, code) {
         <div class="p-chip"><i class="dot"></i><b>${code}</b><span class="st"></span></div>
         <div class="p-top-r">
           ${languagePicker()}
+          <button class="icon-btn" data-a="display" title="Настройки этого экрана" aria-label="Настройки этого экрана">${icon('settings')}</button>
           <button class="icon-btn" data-a="keys" title="Пульты и кнопки" aria-label="Пульты и кнопки">${icon('keyboard')}</button>
           <button class="icon-btn" data-a="qr" title="QR для пульта">${icon('qr')}</button>
           <button class="icon-btn" data-a="mirror" title="Зеркало ↔" aria-label="Зеркало ↔" aria-pressed="false">${icon('mirror')}</button>
@@ -117,7 +127,7 @@ export function mountPrompter(root, code) {
 
   // Networking
   const room = new Room(code, 'prompter', () => ({
-    vw: stage.w, vh: stage.h, name: deviceName(),
+    vw: stage.w, vh: stage.h, name: profile.name || deviceName(), displayId, displayBorn, profile,
     sid: script ? script.id + ':' + script.updated : null,
     session: captureSession(stage, engine, script ? script.id + ':' + script.updated : null), ready: currentReady(),
   }));
@@ -141,6 +151,13 @@ export function mountPrompter(root, code) {
   room.addEventListener('leave', setStatus);
   room.addEventListener('join', (e) => {
     setStatus();
+    if (e.detail.role === 'prompter') {
+      const peer = room.members.get(e.detail.id);
+      if (peer?.hello?.displayId === displayId && (peer.hello.displayBorn < displayBorn || (peer.hello.displayBorn === displayBorn && e.detail.id < room.id))) {
+        displayId = uid(); url.searchParams.set('screen', displayId); history.replaceState(null, '', url);
+        store.saveDisplayProfile(displayId, profile); persist(); room.send('hello', room.getHello());
+      }
+    }
     if (e.detail.role === 'controller' && !e.detail.again) toast(t('Пульт подключён'));
     lastSent = 0;
     frames?.request();
@@ -161,7 +178,22 @@ export function mountPrompter(root, code) {
         if (p.cnt === m.n) { parts.delete(m.id); setScript({ id: m.id, title: m.title, updated: m.upd, text: p.got.join('') }); }
         break;
       }
-      case 'settings': applySettings(m.s); break;
+      case 'settings':
+        if (m.profile) { profile = cleanDisplayProfile(m.profile); store.saveDisplayProfile(displayId, profile); }
+        applySettings(m.s); break;
+      case 'display': setProfile(m.profile); break;
+      case 'follow': {
+        const previous = leader; leader = m.leader;
+        if (leader && leader !== room.id) { clearTimeout(micTimer); el.classList.remove('need-mic'); }
+        if (engine.mode === 'voice' && leader !== previous) { tracker.stop(); if (settings.voiceDevice === 'prompter' && (!leader || leader === room.id)) startVoice(); }
+        break;
+      }
+      case 'followState':
+        if (m.leader !== leader || leader === room.id || m.state?.sid !== script?.id + ':' + script?.updated) break;
+        restoreSession(stage, engine, m.state);
+        voiceState = m.state.voiceState || 'off'; engine.voiceLive = voiceState === 'hearing';
+        speedV.textContent = engine.speed.toFixed(1); lastSent = 0; frames?.request();
+        break;
       case 'session':
         pendingSession = m;
         applySession();
@@ -190,13 +222,14 @@ export function mountPrompter(root, code) {
     restoreSession(stage, engine, state); syncTag = tag;
     tracker.setPosition(engine.voiceIdx);
     voiceState = state.voiceState || 'off';
-    if (engine.mode === 'voice' && settings.voiceDevice === 'prompter') startVoice();
+    if (engine.mode === 'voice' && settings.voiceDevice === 'prompter' && (!leader || leader === room.id)) startVoice();
     speedV.textContent = engine.speed.toFixed(1);
     refreshTouchLock(); persist(); sendState(true); frames?.request();
   }
 
   function applySettings(s) {
-    const next = { ...DEFAULTS, ...s };
+    baseSettings = { ...DEFAULTS, ...s };
+    const next = displaySettings(baseSettings, profile);
     const layout = LAYOUT_KEYS.some(k => next[k] !== settings[k]);
     const prevLang = settings.voiceLang, prevDev = settings.voiceDevice;
     settings = next;
@@ -204,11 +237,28 @@ export function mountPrompter(root, code) {
     else stage.setSettings(settings);
     if (engine.mode === 'voice' && (prevLang !== settings.voiceLang || prevDev !== settings.voiceDevice)) {
       tracker.stop();
-      if (settings.voiceDevice === 'prompter') startVoice();
+      if (settings.voiceDevice === 'prompter' && (!leader || leader === room.id)) startVoice();
     }
     persist(true);
     refreshTouchLock();
     refreshMirror();
+  }
+
+  function setProfile(value, broadcast = false) {
+    profile = cleanDisplayProfile(value); store.saveDisplayProfile(displayId, profile);
+    applySettings(baseSettings); lastSent = 0; frames?.request();
+    if (broadcast) room.send('displayChange', { profile });
+  }
+  function requestCommand(c, m = {}) {
+    if (room.peersOf('controller').length) {
+      if (c === 'nudge') room.send('control', { c, lines: m.v / (settings.fontSize * settings.lineHeight) });
+      else room.send('control', { ...m, c });
+    } else command(c, m);
+  }
+  function requestSeek(pos, smooth = false) {
+    if (!room.peersOf('controller').length) { seekTo(pos, smooth); return; }
+    const state = captureSession(stage, { pos: stage.clamp(pos), snapshot: () => ({ ...engine.snapshot(), pos: stage.clamp(pos) }) }, script ? script.id + ':' + script.updated : null);
+    room.send('control', { c: 'seek', state, smooth });
   }
 
   // Controller and keyboard commands
@@ -222,10 +272,11 @@ export function mountPrompter(root, code) {
     frames?.request();
   }
   function section(dir) {
-    seekTo(stage.sectionStep(engine.pos, dir));
+    requestCommand('section', { dir });
   }
 
   function command(c, m = {}) {
+    if (m.tag) commandTag = m.tag;
     switch (c) {
       case 'toggle': engine.toggle(settings.countdown); break;
       case 'play': engine.play(settings.countdown); break;
@@ -236,10 +287,10 @@ export function mountPrompter(root, code) {
       case 'nudge': engine.nudge = m.v || 0; break;
       case 'seek': {
         const same = m.vw === stage.w && m.vh === stage.h;
-        seekTo(same || m.word == null ? m.pos : stage.posForWord(m.word), !!m.smooth);
+        seekTo(m.state ? sessionPosition(stage, m.state) : same || m.word == null ? m.pos : stage.posForWord(m.word), !!m.smooth);
         break;
       }
-      case 'section': m.k != null ? seekTo(stage.posForSection(m.k)) : section(m.dir); break;
+      case 'section': seekTo(m.k != null ? stage.posForSection(m.k) : stage.sectionStep(engine.pos, m.dir)); break;
       case 'voice': m.on ? voiceOn(m.idx) : voiceOff(); break;
       case 'voiceState':
         if (localMode && settings.voiceDevice === 'controller') voiceState = m.state;
@@ -276,9 +327,10 @@ export function mountPrompter(root, code) {
     engine.mode = 'voice';
     engine.voiceIdx = idx != null ? idx : stage.wordAt(engine.pos);
     tracker.setPosition(engine.voiceIdx);
-    if (settings.voiceDevice === 'prompter') startVoice();
+    if (settings.voiceDevice === 'prompter' && (!leader || leader === room.id)) startVoice();
   }
   function startVoice() {
+    if (leader && leader !== room.id) return;
     if (!voiceSupported) { voiceState = 'unsupported'; toast(localMode ? t('По HTTP микрофон телефона недоступен. Используйте микрофон пульта ({name}).', { name: hostName }) : t('Этот браузер не умеет распознавать речь'), 'bad'); return; }
     tracker.start(settings.voiceLang);
     // Some browsers require a user gesture to start the microphone.
@@ -330,7 +382,6 @@ export function mountPrompter(root, code) {
   function togglePlayback() {
     const c = engine.playing || engine.mode === 'voice' ? 'pause' : 'play';
     command(c);
-    // Absolute commands also work when several controllers receive the request.
     if (room.peersOf('controller').length) room.send('control', { c });
   }
   function refreshMirror() {
@@ -342,19 +393,19 @@ export function mountPrompter(root, code) {
     if (!b) return;
     showUI();
     const a = b.dataset.a;
-    if (a === 'keys') remotes.open();
+    if (a === 'display') profileDialog(profile, baseSettings, value => setProfile(value, true));
+    else if (a === 'keys') remotes.open();
     else if (a === 'fs') toggleFullscreen();
     else if (a === 'mirror') {
-      applySettings({ ...settings, mirrorH: !settings.mirrorH });
-      room.send('mirror', { value: settings.mirrorH });
+      setProfile({ ...profile, overrides: { ...profile.overrides, mirrorH: !settings.mirrorH } }, true);
     }
     else if (a === 'toggle') togglePlayback();
     else if (a === 'qr') el.classList.toggle('show-qr');
     else if (a === 'prev') section(-1);
     else if (a === 'next') section(1);
-    else if (a === 'slower') command('speedBy', { v: -0.2 });
-    else if (a === 'faster') command('speedBy', { v: 0.2 });
-    else command(a);
+    else if (a === 'slower') requestCommand('speed', { v: clampSpeed(engine.speed - .2) });
+    else if (a === 'faster') requestCommand('speed', { v: clampSpeed(engine.speed + .2) });
+    else requestCommand(a);
   });
   el.addEventListener('mousemove', (e) => { if (e.movementX || e.movementY) showUI(); });
 
@@ -372,7 +423,7 @@ export function mountPrompter(root, code) {
     const dy = (e.clientY - drag.y) * (settings.mirrorV ? -1 : 1);
     if (!drag.moved && Math.abs(dy) > 8) { clearTimeout(longPress); drag.moved = true; stageHost.setPointerCapture(e.pointerId); }
     if (isTouchLocked()) return;
-    if (drag.moved) seekTo(drag.pos - dy, false);
+    if (drag.moved) requestSeek(drag.pos - dy, false);
   });
   stageHost.addEventListener('pointerup', (e) => {
     if (!drag || e.pointerId !== drag.id) return;
@@ -384,7 +435,7 @@ export function mountPrompter(root, code) {
   stageHost.addEventListener('wheel', (e) => {
     e.preventDefault();
     if (isTouchLocked()) return;
-    seekTo(engine.pos + e.deltaY * (settings.mirrorV ? -1 : 1), false);
+    requestSeek(engine.pos + e.deltaY * (settings.mirrorV ? -1 : 1), false);
   }, { passive: false });
   el.querySelector('.p-qr-pop').onclick = () => el.classList.remove('show-qr');
   $('.p-lock').onclick = () => { touchUnlocked = !touchUnlocked; refreshTouchLock(); if (!lockState) showUI(); };
@@ -413,24 +464,30 @@ export function mountPrompter(root, code) {
   }
 
   const remotes = mountRemotes({
-    toggle: togglePlayback, start: () => command('start'),
-    faster: () => command('speedBy', { v: .2 }), slower: () => command('speedBy', { v: -.2 }),
+    toggle: togglePlayback, start: () => requestCommand('start'),
+    faster: () => requestCommand('speed', { v: clampSpeed(engine.speed + .2) }), slower: () => requestCommand('speed', { v: clampSpeed(engine.speed - .2) }),
     next: () => section(1), prev: () => section(-1),
-    forward: held => command('nudge', { v: held ? settings.fontSize * settings.lineHeight * 3.5 : 0 }),
-    back: held => command('nudge', { v: held ? -settings.fontSize * settings.lineHeight * 3.5 : 0 }),
+    forward: held => requestCommand('nudge', { v: held ? settings.fontSize * settings.lineHeight * 3.5 : 0 }),
+    back: held => requestCommand('nudge', { v: held ? -settings.fontSize * settings.lineHeight * 3.5 : 0 }),
     fullscreen: toggleFullscreen,
-    mirror: () => { applySettings({ ...settings, mirrorH: !settings.mirrorH }); room.send('mirror', { value: settings.mirrorH }); },
+    mirror: () => setProfile({ ...profile, overrides: { ...profile.overrides, mirrorH: !settings.mirrorH } }, true),
   });
 
   // Drawing and state exchange
-  let lastSent = 0, prevSig = '';
+  let lastSent = 0, prevSig = '', stateFlush = 0;
   function sendState(force = false) {
     if (!room.peersOf('controller').length || document.hidden) return;
     const now = performance.now();
-    const sig = `${engine.pos.toFixed(1)}|${engine.playing}|${engine.speed}|${Math.ceil(engine.cd)}|${engine.mode}|${engine.voiceIdx}|${voiceState}|${stage.w}x${stage.h}|${stage.max}`;
-    if (!force && (sig === prevSig || now - lastSent < 33)) return;
+    const sig = `${engine.pos.toFixed(1)}|${engine.playing}|${engine.speed}|${Math.ceil(engine.cd)}|${engine.mode}|${engine.voiceIdx}|${voiceState}|${stage.w}x${stage.h}|${stage.max}|${stage.layout}|${commandTag}|${JSON.stringify(profile)}|${script?.id}:${script?.updated}|${syncTag}`;
+    if (!force && sig === prevSig) return;
+    if (!force && now - lastSent < 33) {
+      if (!stateFlush) stateFlush = setTimeout(() => { stateFlush = 0; sendState(); }, 33 - (now - lastSent));
+      return;
+    }
     prevSig = sig; lastSent = now;
     room.send('state', {
+      ...captureSession(stage, engine, script ? script.id + ':' + script.updated : null),
+      command: commandTag, displayId, profile,
       pos: engine.pos, playing: engine.playing, speed: engine.speed, cd: engine.cd,
       mode: engine.mode, voiceIdx: engine.voiceIdx, voiceState, max: stage.max,
       vw: stage.w, vh: stage.h, sid: script ? script.id + ':' + script.updated : null,
@@ -457,7 +514,7 @@ export function mountPrompter(root, code) {
   platform.events.addEventListener('visible', onVisibility);
 
   function persist() {
-    store.setPrompterCache({ script, settings, speed: engine.speed, pos: engine.pos });
+    store.setPrompterCache({ script, settings: baseSettings, speed: engine.speed, pos: engine.pos }, displayId);
   }
 
   speedV.textContent = engine.speed.toFixed(1);
@@ -469,7 +526,8 @@ export function mountPrompter(root, code) {
   return {
     destroy() {
       releaseTranslation(); releaseLanguage();
-      persist();
+      persist(); closeModals();
+      clearTimeout(stateFlush);
       frames.destroy(); stage.destroy();
       clearInterval(stateTimer); clearInterval(saveTimer);
       clearTimeout(micTimer);

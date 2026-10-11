@@ -69,7 +69,7 @@ host service.
 
 ## Features
 
-- Shared text layout in the controller preview and reading screen.
+- [Multiple reading screens](docs/displays.md) with synchronized passages, exact simultaneous previews, format comparison and individual display calibration.
 - Speed control, sections, horizontal/vertical mirrors, countdown and [configurable remotes and pedals](docs/remotes.md).
 - Offline native speech on macOS; Vosk on Windows/Linux; on-device recognition on supported Android devices.
 - Script library, TXT/Markdown/DOCX import, settings profiles and portable JSON backups.
