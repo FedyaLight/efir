@@ -79,6 +79,7 @@ function mountHome(root) {
           </button>
         </div>
         <p class="h-download">Есть приложение для macOS, Windows, Linux и Android. <a href="https://fedyalight.github.io/efir/download/" data-download>Скачать приложение</a></p>
+        <a class="pill-btn h-github" href="https://github.com/FedyaLight/efir" target="_blank" rel="noopener noreferrer">${icon('star')}<span>Star on GitHub</span></a>
       </section>
 
       <section class="h-notes">
