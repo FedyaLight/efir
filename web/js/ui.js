@@ -3,6 +3,7 @@ import { t, translateUI } from './i18n.js';
 import { platform } from './platform.js';
 
 const P = {
+  star: '<path d="m12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.2-5.7-3-5.7 3 1.1-6.2-4.5-4.4 6.3-.9z"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
   arrow: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
   back: '<path d="M19 12H5"/><path d="m11 18-6-6 6-6"/>',
