@@ -1,6 +1,7 @@
 // Device-local input bindings. HID keyboards need no device permission.
 import { t } from './i18n.js';
 import { modal } from './ui.js';
+import { platform } from './platform.js';
 
 const KEY = 'efir.remotes.v1';
 const ACTIONS = {
@@ -59,7 +60,7 @@ export function mountRemotes(handlers) {
     config.bindings[token] = learning; learning = null; save(); renderDialog();
   }
   function onKey(e) {
-    if (e.defaultPrevented || e.isComposing || e.key === 'Process' || e.key === 'Dead' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!platform.visible || e.defaultPrevented || e.isComposing || e.key === 'Process' || e.key === 'Dead' || e.ctrlKey || e.metaKey || e.altKey) return;
     const token = tokenFor(e);
     if (learning) {
       if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); learning = null; renderDialog(); return; }
@@ -86,15 +87,13 @@ export function mountRemotes(handlers) {
   document.addEventListener('keydown', onKey, true);
   document.addEventListener('keyup', onUp, true);
   document.addEventListener('visibilitychange', onHidden);
-  window.addEventListener('blur', release);
 
   // Explicit opt-in: axes/buttons vary by hardware, so learn rather than guess.
   function poll() {
     raf = 0;
-    if (dead || !config.gamepad || document.hidden) return;
+    if (!canPoll()) { release(); return; }
     const signals = new Set();
     let padCount = 0, padError = typeof navigator.getGamepads !== 'function';
-    if (!document.hasFocus()) { release(); raf = requestAnimationFrame(poll); return; }
     if (document.hasFocus()) {
       try {
         for (const pad of navigator.getGamepads?.() || []) {
@@ -106,7 +105,10 @@ export function mountRemotes(handlers) {
       } catch { padError = true; }
     }
     const status = dialog?.el.querySelector('.remote-pad-status');
-    if (status) status.textContent = t(padError ? 'Gamepad недоступен в этом браузере. Используйте режим клавиатуры.' : 'Gamepad: {count}. Для обнаружения нажмите кнопку на подключённом пульте.', { count: padCount });
+    if (status) {
+      const text = t(padError ? 'Gamepad недоступен в этом браузере. Используйте режим клавиатуры.' : 'Gamepad: {count}. Для обнаружения нажмите кнопку на подключённом пульте.', { count: padCount });
+      if (status.textContent !== text) status.textContent = text;
+    }
     if (!padArmed) { if (!signals.size) padArmed = true; }
     else {
       for (const token of [...pressed.keys()]) if (token.startsWith('pad:') && !signals.has(token)) stop(token);
@@ -117,8 +119,14 @@ export function mountRemotes(handlers) {
     }
     raf = requestAnimationFrame(poll);
   }
-  const startPoll = () => { if (!raf && config.gamepad && !dead && !document.hidden) raf = requestAnimationFrame(poll); };
-  document.addEventListener('visibilitychange', startPoll);
+  const canPoll = () => !dead && config.gamepad && platform.visible && document.hasFocus();
+  const stopPoll = () => { cancelAnimationFrame(raf); raf = 0; release(); };
+  const startPoll = () => { if (!raf && canPoll()) raf = requestAnimationFrame(poll); };
+  const onActivity = () => { if (!platform.visible) release(); canPoll() ? startPoll() : stopPoll(); };
+  document.addEventListener('visibilitychange', onActivity);
+  platform.events.addEventListener('visible', onActivity);
+  window.addEventListener('blur', stopPoll);
+  window.addEventListener('focus', startPoll);
   startPoll();
 
   function renderDialog() {
@@ -133,10 +141,10 @@ export function mountRemotes(handlers) {
         <div class="remote-bindings">${Object.entries(bindings()).filter(([, a]) => a === action).map(([token]) => `<button class="link-btn" data-unbind="${esc(token)}" title="${t('Убрать назначение')}"><kbd>${esc(label(token))}</kbd> ×</button>`).join('')}</div></div>`).join('')}</div>
       <button class="pill-btn" data-remote-reset>${t('Сбросить назначения')}</button>
       <p class="fine">${t('Пульт работает, пока это окно активно. Фирменные пульты без режима клавиатуры или Gamepad требуют приложения производителя. Медиаклавиши могут перехватываться системой.')}</p>`;
-    body.querySelector('.remote-gamepad').onchange = e => { release(); config.gamepad = e.target.checked; save(); cancelAnimationFrame(raf); raf = 0; startPoll(); };
+    body.querySelector('.remote-gamepad').onchange = e => { release(); config.gamepad = e.target.checked; save(); onActivity(); };
     body.querySelectorAll('[data-learn]').forEach(b => b.onclick = () => { release(); learning = b.dataset.learn; renderDialog(); });
     body.querySelectorAll('[data-unbind]').forEach(b => b.onclick = () => { release(); config.bindings[b.dataset.unbind] = 'none'; save(); renderDialog(); });
-    body.querySelector('[data-remote-reset]').onclick = () => { release(); config = { bindings: {}, gamepad: false }; learning = null; save(); renderDialog(); };
+    body.querySelector('[data-remote-reset]').onclick = () => { stopPoll(); config = { bindings: {}, gamepad: false }; learning = null; save(); renderDialog(); };
   }
   return {
     open() {
@@ -148,8 +156,9 @@ export function mountRemotes(handlers) {
     destroy() {
       dead = true; release(); dialog?.close(); cancelAnimationFrame(raf);
       document.removeEventListener('keydown', onKey, true); document.removeEventListener('keyup', onUp, true);
-      document.removeEventListener('visibilitychange', onHidden); document.removeEventListener('visibilitychange', startPoll);
-      window.removeEventListener('blur', release);
+      document.removeEventListener('visibilitychange', onHidden); document.removeEventListener('visibilitychange', onActivity);
+      platform.events.removeEventListener('visible', onActivity);
+      window.removeEventListener('blur', stopPoll); window.removeEventListener('focus', startPoll);
     },
   };
 }

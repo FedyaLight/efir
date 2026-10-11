@@ -476,7 +476,7 @@ export function mountPrompter(root, code) {
   // Drawing and state exchange
   let lastSent = 0, prevSig = '', stateFlush = 0;
   function sendState(force = false) {
-    if (!room.peersOf('controller').length || document.hidden) return;
+    if (!room.peersOf('controller').length || !platform.visible) return;
     const now = performance.now();
     const sig = `${engine.pos.toFixed(1)}|${engine.playing}|${engine.speed}|${Math.ceil(engine.cd)}|${engine.mode}|${engine.voiceIdx}|${voiceState}|${stage.w}x${stage.h}|${stage.max}|${stage.layout}|${commandTag}|${JSON.stringify(profile)}|${script?.id}:${script?.updated}|${syncTag}`;
     if (!force && sig === prevSig) return;
@@ -487,7 +487,7 @@ export function mountPrompter(root, code) {
     prevSig = sig; lastSent = now;
     room.send('state', {
       ...captureSession(stage, engine, script ? script.id + ':' + script.updated : null),
-      command: commandTag, displayId, profile,
+      command: commandTag,
       pos: engine.pos, playing: engine.playing, speed: engine.speed, cd: engine.cd,
       mode: engine.mode, voiceIdx: engine.voiceIdx, voiceState, max: stage.max,
       vw: stage.w, vh: stage.h, sid: script ? script.id + ':' + script.updated : null,

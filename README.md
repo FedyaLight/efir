@@ -122,3 +122,5 @@ Dependency licenses and provenance are kept beside the vendored sources:
 
 Efir's original code is licensed under [MIT](LICENSE). Third-party code, fonts
 and bundled runtimes retain their own licenses; see the notices linked above.
+
+Resource audit and measurement limits: [performance audit](docs/performance-audit.md).

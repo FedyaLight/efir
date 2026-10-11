@@ -1,6 +1,7 @@
 import { t, translateUI, onLanguageChange } from './i18n.js';
 import { localMode } from './environment.js';
 import { copyText } from './ui.js';
+import { platform } from './platform.js';
 import { probeSignaling } from './rtc.js';
 
 // Help WebRTC expose local host candidates.
@@ -174,14 +175,15 @@ export function mountLanHelp(host, room, isConnected, { eager = true, always = f
   box.querySelector('[data-lan="diag"]').onclick = renderDiag;
 
   async function update() {
-    if (disposed) return;
+    if (disposed || !platform.visible) return;
     paintDiag();
     const connected = isConnected();
     const failing = room.status === 'nop2p' || (eager && !connected && Date.now() - started > 9000);
     box.classList.toggle('show', always || (!connected && failing));
     box.classList.toggle('done', unlockedNow);
     const btn = box.querySelector('[data-lan="unlock"]');
-    btn.textContent = unlockedNow ? t('Разрешено здесь ✓ — теперь на втором устройстве') : t('Разрешить поиск в локальной сети');
+    const text = unlockedNow ? t('Разрешено здесь ✓ — теперь на втором устройстве') : t('Разрешить поиск в локальной сети');
+    if (btn.textContent !== text) btn.textContent = text;
     // Reuse an existing microphone permission.
     if (!connected && failing && !autoTried && !unlockedNow) {
       autoTried = true;
@@ -191,7 +193,8 @@ export function mountLanHelp(host, room, isConnected, { eager = true, always = f
   const timer = setInterval(update, 1500);
   const onStatus = () => update();
   room.addEventListener('status', onStatus);
+  document.addEventListener('visibilitychange', onStatus); platform.events.addEventListener('visible', onStatus);
   update();
   const releaseLanguage = onLanguageChange(update);
-  return { update, destroy() { disposed = true; probeAbort?.abort(); releaseTranslation(); releaseLanguage(); clearInterval(timer); room.removeEventListener('status', onStatus); box.remove(); } };
+  return { update, destroy() { disposed = true; probeAbort?.abort(); releaseTranslation(); releaseLanguage(); clearInterval(timer); room.removeEventListener('status', onStatus); document.removeEventListener('visibilitychange', onStatus); platform.events.removeEventListener('visible', onStatus); box.remove(); } };
 }

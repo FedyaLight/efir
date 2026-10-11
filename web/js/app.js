@@ -7,6 +7,7 @@ import { mountController } from './controller.js';
 import { mountPrompter } from './prompter.js';
 import { icon } from './ui.js';
 import { Stage, Engine } from './stage.js';
+import { FrameLoop } from './frames.js';
 
 
 const app = document.getElementById('app');
@@ -101,19 +102,30 @@ function mountHome(root) {
   const engine = new Engine(stage);
   const releaseLanguage = onLanguageChange(() => { stage.setScript(t('sample.demo')); engine.pos = stage.clamp(engine.pos); updateDownload(); });
   engine.speed = 3.2;
-  engine.play(0);
-  let raf = 0, last = performance.now(), wait = 0;
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const loop = (t) => {
-    const dt = Math.min(0.1, (t - last) / 1000); last = t;
-    if (!reduce) {
-      if (!engine.playing) { wait += dt; if (wait > 2) { wait = 0; engine.pos = 0; engine.play(0); } }
-      engine.step(dt);
-    }
+  const motion = matchMedia('(prefers-reduced-motion: reduce)');
+  let inView = true, restart = 0;
+  const frames = new FrameLoop(stage, engine, () => {
     stage.render(engine.snapshot());
-    raf = requestAnimationFrame(loop);
+    if (!motion.matches && !engine.playing && !restart) restart = setTimeout(() => {
+      restart = 0;
+      if (platform.visible && inView && !motion.matches) { engine.pos = 0; engine.play(0); frames.request(); }
+    }, 2000);
+  });
+  const updateDemo = () => {
+    const active = platform.visible && inView;
+    if (!active || motion.matches) { clearTimeout(restart); restart = 0; }
+    if (motion.matches) engine.pause();
+    else if (active) engine.play(0);
+    frames.setActive(active); if (active) frames.request();
   };
-  raf = requestAnimationFrame(loop);
+  const demoObserver = typeof IntersectionObserver === 'function' ? new IntersectionObserver(entries => {
+    inView = entries[0].isIntersecting; updateDemo();
+  }) : null;
+  demoObserver?.observe(el.querySelector('.demo'));
+  document.addEventListener('visibilitychange', updateDemo);
+  platform.events.addEventListener('visible', updateDemo);
+  motion.addEventListener('change', updateDemo);
+  updateDemo();
 
   const input = el.querySelector('#roomInput');
   input.addEventListener('input', () => {
@@ -130,7 +142,8 @@ function mountHome(root) {
     if (c.length < 3) { input.focus(); input.classList.add('shake'); setTimeout(() => input.classList.remove('shake'), 500); return; }
     location.hash = `#/${b.dataset.role}/${c}`;
   });
-  return { destroy() { releaseTranslation(); releaseLanguage(); cancelAnimationFrame(raf); stage.destroy(); } };
+  return { destroy() { releaseTranslation(); releaseLanguage(); frames.destroy(); stage.destroy(); clearTimeout(restart); demoObserver?.disconnect();
+    document.removeEventListener('visibilitychange', updateDemo); platform.events.removeEventListener('visible', updateDemo); motion.removeEventListener('change', updateDemo); } };
 }
 
 if (localMode) await document.fonts?.ready;

@@ -123,13 +123,17 @@ export class Stage {
   }
 
   setSettings(s) {
+    if (this.s && Object.keys({ ...this.s, ...s }).every(key => this.s[key] === s[key])) return;
+    const nextLayout = layoutSignature(s), changedLayout = nextLayout !== this._layout;
     const changedFont = !this.s || this.s.fontFamily !== s.fontFamily || this.s.fontWeight !== s.fontWeight;
     this.s = { ...s };
+    this._layout = nextLayout;
     if (changedFont && document.fonts) {
       document.fonts.load(`${s.fontWeight} ${s.fontSize}px "${s.fontFamily}"`, 'Эфир ABC').then(() => this.invalidate()).catch(() => {});
     }
     this._applyVars();
-    this.invalidate();
+    if (changedLayout) this.invalidate();
+    else this.onInvalidate?.();
   }
 
   setScript(text) {
@@ -189,7 +193,7 @@ export class Stage {
     this._applyMirror();
   }
 
-  setShowMirror(v) { this.showMirror = v; this._applyMirror(); }
+  setShowMirror(v) { if (this.showMirror === v) return; this.showMirror = v; this._applyMirror(); }
 
   _applyMirror() {
     const s = this.s; if (!s) return;
@@ -228,7 +232,7 @@ export class Stage {
     this.secTops = [...this.text.querySelectorAll('.sec')].map(e => e.offsetTop);
   }
 
-  get layout() { return layoutSignature(this.s || {}); }
+  get layout() { return this._layout || layoutSignature({}); }
 
   get markerY() { return (this.s ? this.s.markerPos : 40) * this.h / 100; }
 
@@ -324,15 +328,18 @@ export class Stage {
     }
 
     // HUD
-    const pps = this.pxPerSec(st.speed || 1);
-    const elapsed = pos / pps, remain = (this.max - pos) / pps;
-    const t = fmt(elapsed), r = '−' + fmt(remain);
-    if (this.hudEl.textContent !== t) this.hudEl.textContent = t;
-    if (this.hudRm.textContent !== r) this.hudRm.textContent = r;
-    const progress = this.max ? pos / this.max : 0;
-    if (progress !== this._lastProgress) {
-      this._lastProgress = progress;
-      this.hudBar.style.transform = `scaleX(${progress})`;
+    if (this.s?.showTimer) {
+      const pps = this.pxPerSec(st.speed || 1);
+      const t = fmt(pos / pps), r = '−' + fmt((this.max - pos) / pps);
+      if (this.hudEl.textContent !== t) this.hudEl.textContent = t;
+      if (this.hudRm.textContent !== r) this.hudRm.textContent = r;
+    }
+    if (this.s?.showProgress) {
+      const progress = this.max ? pos / this.max : 0;
+      if (progress !== this._lastProgress) {
+        this._lastProgress = progress;
+        this.hudBar.style.transform = `scaleX(${progress})`;
+      }
     }
     return pos;
   }
