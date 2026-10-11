@@ -25,8 +25,8 @@ The expanded `tests/performance.mjs` uses one controller and three isolated Chro
 | --- | ---: | ---: |
 | Unchanged secondary-screen label mutations, scrolling | 1476 | 0 |
 | Unchanged secondary-screen label mutations, paused / settled voice | 24 / 24 | 0 / 0 |
-| Controller main-thread CPU, scrolling | 9.23% | 7.86–8.33% in two samples |
-| Bytes sent by controller + three readers, scrolling | 499523 | 449451 in the final sample |
+| Controller main-thread CPU, scrolling | 9.23% | 7.86–8.50% in three samples |
+| Bytes sent by controller + three readers, scrolling | 499523 | 449037 in the final sample |
 | Primary reader animation callbacks, paused / settled voice | 0 / 0 | 0 / 0 |
 | Hidden native controller with Gamepad enabled, 600 ms | 36 callbacks | 0 |
 | Reduced-motion homepage demo, 600 ms | 36 callbacks | 0 |
