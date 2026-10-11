@@ -8,6 +8,7 @@ import shutil
 from string import Template
 
 ROOT = Path(__file__).resolve().parent.parent
+VERSION = json.loads((ROOT / "desktop/package.json").read_text())["version"]
 OUT = ROOT / "work" / "site"
 BASE = "https://fedyalight.github.io/efir"
 REPO = "https://github.com/FedyaLight/efir"
@@ -49,7 +50,7 @@ def build():
         canonical = f"{BASE}/{page_path(language)}"
         data = {key: html.escape(value, quote=True) for key, value in text.items() if isinstance(value, str)}
         data.update(lang=locale, direction="rtl" if language == "ar" else "ltr", prefix=prefix,
-                    canonical=canonical, base=BASE, repo=REPO)
+                    canonical=canonical, base=BASE, repo=REPO, version=VERSION)
         data["alternates"] = "\n  ".join(
             f'<link rel="alternate" hreflang="{tag}" href="{BASE}/{page_path(code)}">'
             for code, tag in LOCALES.items()
@@ -78,7 +79,7 @@ def build():
             "@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Efir",
             "alternateName": "Эфир", "url": canonical, "description": text["description"],
             "applicationCategory": "MultimediaApplication", "operatingSystem": "macOS, Windows, Linux, Android, Web",
-            "softwareVersion": "1.3.2", "inLanguage": list(LOCALES.values()),
+            "softwareVersion": VERSION, "inLanguage": list(LOCALES.values()),
             "license": f"{REPO}/blob/main/LICENSE", "sameAs": REPO,
             "downloadUrl": f"{REPO}/releases/latest", "image": f"{BASE}/assets/social.png",
             "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},

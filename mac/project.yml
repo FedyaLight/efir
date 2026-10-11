@@ -33,8 +33,8 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: Эфир
-        CFBundleShortVersionString: '1.3.2'
-        CFBundleVersion: '6'
+        CFBundleShortVersionString: '1.4.0'
+        CFBundleVersion: '7'
         CFBundleDevelopmentRegion: ru
         CFBundleLocalizations: ['ru', 'en', 'es', 'zh-Hans', 'hi', 'ar']
         NSLocalNetworkUsageDescription: Эфир раздаёт суфлёр устройствам в вашей локальной сети.

@@ -87,10 +87,15 @@ export JAVA_HOME=/path/to/jdk17
 export ANDROID_HOME=/path/to/android-sdk
 python3 script/build_android.py --debug --test
 python3 script/build_android.py --local-sign --output ./work/releases/Efir-Android.apk
+# Reuse a key stored outside the checkout:
+python3 script/build_android.py --local-sign --signing-dir /path/to/private/android \
+  --output ./work/releases/Efir-Android.apk
 ```
 
 `--local-sign` creates or reuses a key under `.private/android/`. Back up that
-folder: updates must keep the same signing key. Passwords are passed through
+folder: updates must keep the same signing key. `--signing-dir` selects a persistent
+private directory outside disposable checkouts. Keep both `efir-release.jks` and
+`signing.json` together. Passwords are passed through
 environment variables, not command-line arguments. For an existing key, set
 `EFIR_KEYSTORE`, `EFIR_STORE_PASSWORD`, `EFIR_KEY_ALIAS`, `EFIR_KEY_PASSWORD` and
 omit `--local-sign`. Without a key, release output is explicitly named unsigned.

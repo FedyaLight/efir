@@ -12,8 +12,8 @@ import subprocess
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def local_signing(env):
-    private = ROOT / '.private/android'
+def local_signing(env, directory=None):
+    private = directory.expanduser().resolve() if directory else ROOT / '.private/android'
     private.mkdir(parents=True, exist_ok=True)
     private.chmod(0o700)
     credentials = private / 'signing.json'
@@ -21,7 +21,7 @@ def local_signing(env):
     if credentials.exists():
         config = json.loads(credentials.read_text())
         if not key.exists():
-            raise SystemExit('Signing key is missing; restore .private/android from your backup.')
+            raise SystemExit(f'Signing key is missing; restore {private} from your backup.')
     else:
         if key.exists():
             raise SystemExit('Signing password is missing; restore signing.json from your backup.')
@@ -48,11 +48,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--local-sign', action='store_true')
+    parser.add_argument('--signing-dir', type=Path, help='Persistent private key directory (requires --local-sign)')
     parser.add_argument('--test', action='store_true', help='Also build the instrumentation APK')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     if args.test and not args.debug:
         parser.error('--test requires --debug')
+    if args.signing_dir and not args.local_sign:
+        parser.error('--signing-dir requires --local-sign')
 
     env = dict(os.environ)
     tools = ROOT / 'work/android-tools'
@@ -63,7 +66,7 @@ def main():
     if not env.get('ANDROID_HOME') and (tools / 'sdk').exists():
         env['ANDROID_HOME'] = str(tools / 'sdk')
     if args.local_sign:
-        local_signing(env)
+        local_signing(env, args.signing_dir)
 
     kind = 'debug' if args.debug else 'release'
     tasks = ['assembleDebug', 'lintDebug'] if args.debug else ['assembleRelease', 'lintRelease']
