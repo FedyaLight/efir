@@ -18,7 +18,7 @@ import { relayout } from './prompter.js';
 import { mountLanHelp } from './lan.js';
 import { icon, toast, qrSvg, modal, closeModals, loadScript, roomUrl, copyText } from './ui.js';
 
-const LAYOUT_KEYS = ['fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'uppercase', 'sidePad', 'topPad', 'bottomPad', 'markerPos', 'align'];
+const LAYOUT_KEYS = ['fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'uppercase', 'sidePad', 'leftPad', 'rightPad', 'topPad', 'bottomPad', 'markerPos', 'align'];
 
 const FORMATS = [
   { id: '1600x1000', label: '16:10 · монитор', w: 1600, h: 1000 },
@@ -56,6 +56,8 @@ const GROUPS = [
   ] },
   { id: 'margins', title: 'Поля', items: [
     ['sidePad', 'range', { label: 'По бокам', min: 0, max: 35, step: 0.5, unit: '%' }],
+    ['leftPad', 'range', { label: 'Левое поле', min: 0, max: 35, step: 0.5, unit: '%' }],
+    ['rightPad', 'range', { label: 'Правое поле', min: 0, max: 35, step: 0.5, unit: '%' }],
     ['topPad', 'range', { label: 'Сверху до текста', min: 0, max: 100, step: 1, unit: '%' }],
     ['bottomPad', 'range', { label: 'Снизу после текста', min: 0, max: 150, step: 1, unit: '%' }],
   ] },
@@ -124,6 +126,7 @@ export function mountController(root, code) {
   let compareFormats = localStorage.getItem('efir.compareFormats') !== 'false';
   let preferredScreen = localStorage.getItem('efir.leadingScreen');
   const pendingSync = new Map(), readiness = new Map();
+  let resync = null, resyncTimer = 0;
 
   const readerActions = platform.has('showPrompter') ? `<div class="local-reader-actions">
     <button class="pill-btn accent" data-a="read" title="Полный экран">${icon('fullscreen')}<span>Читать здесь</span></button>
@@ -183,6 +186,7 @@ export function mountController(root, code) {
       <div class="preview-meta">
         <label class="leading-label">Ведущий суфлёр <select class="pm-screen" aria-label="Ведущий суфлёр"></select></label>
         <button class="link-btn" data-a="display">Настройки этого экрана</button>
+        <button class="icon-btn" data-a="sync" title="Синхронизировать экраны" aria-label="Синхронизировать экраны" disabled>${icon('sync')}</button>
         <label class="chk"><input type="checkbox" class="pm-all">Все экраны</label>
         <label class="chk"><input type="checkbox" class="pm-compare">Сравнить форматы</label>
         <select class="pm-fmt" title="Формат предпросмотра без суфлёра">${FORMATS.map(f => `<option value="${f.id}">${f.label}</option>`).join('')}</select>
@@ -315,6 +319,7 @@ export function mountController(root, code) {
     select.value = primary || '';
     select.disabled = !ps.length;
     $('[data-a="display"]').disabled = !selected;
+    refreshSyncButton();
     refreshPrimaryPreview();
   }
   function refreshPrimaryPreview() {
@@ -347,6 +352,7 @@ export function mountController(root, code) {
   $('.pm-all').onchange = e => { allScreens = e.target.checked; localStorage.setItem('efir.allScreens', allScreens); fitPreview(); };
   $('.pm-compare').onchange = e => { compareFormats = e.target.checked; localStorage.setItem('efir.compareFormats', compareFormats); fitPreview(); };
   $('.pm-screen').onchange = e => {
+    cancelResync();
     primary = e.target.value; remote = latest.get(primary) || null;
     const peer = room.peersOf('prompter').find(p => p.id === primary);
     preferredScreen = screenId(peer); localStorage.setItem('efir.leadingScreen', preferredScreen);
@@ -363,6 +369,7 @@ export function mountController(root, code) {
   function profileFor(peer) { return cleanDisplayProfile(profiles[screenId(peer)] || peer?.hello?.profile); }
   function updateDisplay(peer, profile) {
     if (!peer) return;
+    cancelResync();
     const id = screenId(peer); profiles[id] = cleanDisplayProfile(profile); store.saveDisplayProfile(id, profiles[id]);
     room.send('display', { to: peer.id, profile: profiles[id] });
     relayout(stage, engine, fitPreview); renderStatus(); frames?.request();
@@ -377,7 +384,7 @@ export function mountController(root, code) {
     const prev = primary;
     primary = (available.find(p => screenId(p) === preferredScreen) || available[0])?.id || null;
     remote = latest.get(primary) || null;
-    if (prev !== primary) { relayout(stage, engine, fitPreview); if (remote) restoreSession(stage, engine, remote); configureFollowers(); frames?.request(); }
+    if (prev !== primary) { cancelResync(); relayout(stage, engine, fitPreview); if (remote) restoreSession(stage, engine, remote); configureFollowers(); frames?.request(); }
   }
 
   function renderStatus() {
@@ -437,6 +444,7 @@ export function mountController(root, code) {
   room.addEventListener('leave', (e) => {
     if (e.detail.role === 'prompter') {
       pendingSync.delete(e.detail.id); readiness.delete(e.detail.id); latest.delete(e.detail.id); seen.delete(e.detail.id);
+      finishResync();
       if (e.detail.id === primary) { primary = null; pickPrimary(); fitPreview(); toast(t('Суфлёр отключился')); }
     }
     fitPreview(); renderStatus();
@@ -446,6 +454,24 @@ export function mountController(root, code) {
   room.addEventListener('message', (e) => {
     const m = e.detail;
     if (m.role !== 'prompter') return;
+    if (m.t === 'resynced') {
+      if (!resync || resync.leader !== primary || m.from !== primary || m.request !== resync.tag || m.state?.sid !== cur.id + ':' + cur.updated) return;
+      stage.invalidate(); fitPreview();
+      remote = { ...m.state, from: m.from };
+      restoreSession(stage, engine, remote);
+      tracker.setPosition(engine.voiceIdx);
+      holdUntil = seekHold = 0;
+      commandTag = '';
+      resync.confirming = true;
+      for (const peer of room.peersOf('prompter')) {
+        if (peer.id === primary) continue;
+        pendingSync.set(peer.id, resync.tag);
+        room.send('session', { to: peer.id, tag: resync.tag, state: remote });
+      }
+      configureFollowers(); frames?.request();
+      finishResync();
+      return;
+    }
     if (m.t === 'control') {
       if (m.c === 'seek' && m.state?.sid === cur.id + ':' + cur.updated) seekRemote(sessionPosition(stage, m.state), !!m.smooth);
       else if (m.c === 'nudge' && Number.isFinite(m.lines)) cmd('nudge', { v: m.lines * stage.s.fontSize * stage.s.lineHeight });
@@ -464,6 +490,7 @@ export function mountController(root, code) {
     if (pendingSync.has(m.from)) {
       if (pendingSync.get(m.from) !== m.sync) return;
       pendingSync.delete(m.from);
+      finishResync();
     }
     const peer = room.peersOf('prompter').find(p => p.id === m.from);
     if (!peer) return;
@@ -498,9 +525,9 @@ export function mountController(root, code) {
       const link = room.linkInfo();
       const lat = link && link.rtt != null ? link.rtt / 2000 : 0.01;
       const ahead = m.playing && m.cd <= 0 && m.mode !== 'voice' ? stage.pxPerSec(m.speed) * lat : 0;
-      const target = m.pos + ahead;
+      const target = stage.clamp(sessionPosition(stage, m) + ahead);
       const d = target - engine.pos;
-      if (Math.abs(d) > stage.h * 0.4) engine.pos = target;
+      if (!engine.moving || Math.abs(d) > stage.h * 0.4) engine.pos = target;
       else engine.pos += d * 0.35;
       if (engine.target != null && Math.abs(engine.target - target) < 2) engine.target = null;
     }
@@ -520,7 +547,34 @@ export function mountController(root, code) {
   }
 
   // Commands
+  function refreshSyncButton() {
+    const button = $('[data-a="sync"]');
+    button.disabled = !primary || !!resync;
+    button.setAttribute('aria-busy', String(!!resync));
+  }
+  function cancelResync() {
+    clearTimeout(resyncTimer);
+    if (resync) for (const [peer, tag] of pendingSync) { if (tag === resync.tag) pendingSync.delete(peer); }
+    resync = null; refreshSyncButton();
+  }
+  function finishResync() {
+    if (!resync?.confirming || [...pendingSync.values()].includes(resync.tag)) return;
+    cancelResync(); toast(t('Экраны синхронизированы'), 'ok');
+  }
+  function synchronize() {
+    if (!primary || resync) return;
+    flushSeek();
+    resync = { tag: uid(), leader: primary, confirming: false };
+    refreshSyncButton();
+    // Ask the reader for a fresh measurement, rather than pushing a possibly
+    // drifting preview position back to the person currently reading.
+    for (const peer of room.peersOf('prompter')) room.send('settings', { s: settings, profile: profileFor(peer), to: peer.id });
+    sendScript();
+    room.send('resync', { to: primary, request: resync.tag });
+    resyncTimer = setTimeout(() => { cancelResync(); toast(t('Не удалось синхронизировать экраны — проверьте соединение'), 'bad'); }, 6000);
+  }
   function cmd(c, m = {}) {
+    cancelResync();
     sessionEstablished = true;
     if ((c === 'toggle' || c === 'pause') && engine.mode === 'voice') { voiceToggle(); return; }
     if (c === 'toggle') c = engine.playing ? 'pause' : 'play';
@@ -557,6 +611,7 @@ export function mountController(root, code) {
   function positionState(pos) { return captureSession(stage, { pos, snapshot: () => ({ ...engine.snapshot(), pos }) }, cur.id + ':' + cur.updated); }
   let seekSendT = 0, seekPending = null;
   function seekRemote(p, smooth = false) {
+    cancelResync();
     sessionEstablished = true;
     seekLocal(p, smooth);
     const cp = stage.clamp(p);
@@ -637,6 +692,7 @@ export function mountController(root, code) {
     else if (a === 'read') platform.send('showPrompter');
     else if (a === 'mirror') set('mirrorH', !settings.mirrorH);
     else if (a === 'display') configureDisplay(room.peersOf('prompter').find(p => p.id === primary));
+    else if (a === 'sync') synchronize();
     else if (a === 'window') openWindow();
     else if (a === 'keys') openKeys();
     else if (a === 'new') addScript(newScript(), true);
@@ -941,6 +997,7 @@ export function mountController(root, code) {
   // Settings
   let sendSetT = 0, sendSetPending = false;
   function commitSettings(layout) {
+    cancelResync();
     store.saveSettings(settings);
     if (layout) relayout(stage, engine, () => stage.setSettings(displaySettings(settings, profileFor(room.peersOf('prompter').find(p => p.id === primary)))));
     else stage.setSettings(displaySettings(settings, profileFor(room.peersOf('prompter').find(p => p.id === primary))));
@@ -991,7 +1048,7 @@ export function mountController(root, code) {
     refreshControls();
   }
   function renderItem([k, type, o]) {
-    const def = DEFAULTS[k];
+    const def = DEFAULTS[k] ?? settings.sidePad;
     switch (type) {
       case 'range': return `<div class="ctl-row range" data-k="${k}">
         <label><span>${o.label}</span><output title="${t('Двойной клик — по умолчанию ({value})', { value: def })}"></output></label>
@@ -1019,7 +1076,7 @@ export function mountController(root, code) {
     GROUPS.forEach(g => g.items.forEach(([k, type, o]) => {
       const row = body.querySelector(`[data-k="${k}"]`);
       if (!row) return;
-      const v = settings[k];
+      const v = settings[k] ?? settings.sidePad;
       if (type === 'orient') { row.querySelectorAll('[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === `${+settings.mirrorH}-${+settings.mirrorV}`)); return; }
       if (type === 'range') {
         const inp = row.querySelector('input');
@@ -1200,6 +1257,7 @@ export function mountController(root, code) {
       views.destroy(); frames.destroy(); stage.destroy();
       previewObserver.disconnect();
       clearInterval(freshnessTimer);
+      clearTimeout(resyncTimer);
       clearTimeout(edTimer); clearTimeout(saveTimer);
       document.removeEventListener('visibilitychange', saveBeforeHide);
       platform.events.removeEventListener('visible', saveBeforeHide);

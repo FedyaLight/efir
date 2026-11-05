@@ -78,8 +78,11 @@ A reader greeting includes viewport, script version (`sid`), `session` and
 receive targeted `settings`, `script`/`scriptPart`, then `session` with
 `to/tag/state`. They wait for the complete matching script before restoring.
 `state.sync` acknowledges the tag, blocking stale preview state until then.
-Equal viewports use exact pixels; different viewports use word and line offsets.
-Playback, countdown, speed and voice index resume.
+Equal viewports, layout settings and measured geometry (`geometry`) use exact
+pixels; otherwise readers and previews use word and line anchors. Playback,
+countdown, speed and voice index resume. A targeted `resync` request obtains a
+fresh `resynced` snapshot from the leading reader; the controller restores its
+preview and sends tagged sessions to followers, waiting for their acknowledgments.
 
 Reader taps apply play/pause and send that absolute command to the controller,
 so multiple controllers cannot toggle it twice. Quick mirror changes

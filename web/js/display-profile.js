@@ -18,7 +18,10 @@ export function cleanDisplayProfile(value) {
   return result;
 }
 export function displaySettings(settings, profile) {
-  return { ...settings, ...cleanDisplayProfile(profile).overrides };
+  const overrides = cleanDisplayProfile(profile).overrides;
+  // A display's symmetric override replaces the shared horizontal margins;
+  // its own explicit left/right overrides still take precedence.
+  return { ...settings, ...(overrides.sidePad != null ? { leftPad: null, rightPad: null } : {}), ...overrides };
 }
 // Geometry, not color/mirror, decides whether a pixel position can be reused.
 export function layoutSignature(settings) {

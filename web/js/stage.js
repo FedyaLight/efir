@@ -226,9 +226,14 @@ export class Stage {
       this.tops[i] = e.offsetTop + e.offsetHeight / 2;
     }
     this.lines = [];
+    // Settings and viewport dimensions alone do not guarantee equal wrapping
+    // in WebKit and Chromium. Cache the measured word geometry with the layout.
+    let hash = 2166136261;
     for (let i = 0; i < n; i++) {
       if (!i || Math.abs(this.tops[i] - this.tops[i - 1]) > 1) this.lines.push(i);
+      hash = Math.imul(hash ^ Math.round(this.tops[i] * 2), 16777619);
     }
+    this.geometry = `${n}:${this.max}:${hash >>> 0}`;
     this.secTops = [...this.text.querySelectorAll('.sec')].map(e => e.offsetTop);
   }
 
