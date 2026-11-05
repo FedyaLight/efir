@@ -1,6 +1,6 @@
 [package]
 name = "efir-desktop"
-version = "1.4.0"
+version = "1.4.1"
 edition = "2021"
 license = "MIT"
 description = "Free teleprompter with remote control over local Wi-Fi"
