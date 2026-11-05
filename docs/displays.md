@@ -10,9 +10,16 @@ messages over the existing WebRTC transport.
 **Leading teleprompter** chooses the screen that owns the scrolling position and
 pace. Other screens follow its passage, including their own line wrapping. The
 protocol carries the words at adjacent source line starts and progress between
-them; followers interpolate those word positions in their layout. Matching
-viewports and layout settings preserve exact pixels. Different font sizes or
-margins use the word anchor even when the screen dimensions are identical.
+them; followers and controller previews interpolate those word positions in
+their layout. Exact pixels are reused only when the viewport, settings and
+measured word positions match. Differences in browser font metrics and line
+wrapping use the word anchor even when the screen dimensions are identical.
+
+The **Synchronize screens** button (two curved arrows below the preview) asks
+the leading screen for a fresh measurement and aligns the controller and other
+screens to its current passage. It preserves playback, speed and voice mode.
+Confirmation appears after the connected screens acknowledge synchronization;
+if a screen cannot respond, check the connection and retry.
 
 Play/pause, speed, section jumps, pedal scrolling and seeking from any reader
 control the shared session. The controller resolves sections once against the
@@ -57,6 +64,13 @@ separate left/right margins, top/bottom padding, reading-line position and
 horizontal/vertical mirroring. Omitted overrides inherit the shared controller
 settings. **Use shared settings** removes overrides while retaining the name.
 An explicit left/right margin takes precedence over the symmetric side margin.
+
+Shared **Advanced → Margins → Left margin / Right margin** controls adjust the
+two sides independently, as percentages of screen width. They are saved in
+settings profiles and portable backups. Initially both inherit **Side margins**;
+double-click a side's displayed value to restore inheritance. A display's own
+symmetric margin overrides the shared horizontal margins, and its explicit
+left/right overrides take precedence over that.
 
 The reader URL includes `?screen=…`, a stable display identifier distinct from
 its network connection ID. Keep/bookmark this link to reopen the same display

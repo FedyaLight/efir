@@ -198,6 +198,12 @@ export function mountPrompter(root, code) {
         pendingSession = m;
         applySession();
         break;
+      case 'resync':
+        stage.invalidate(); stage.measure();
+        room.send('resynced', { to: m.from, request: m.request,
+          state: { ...captureSession(stage, engine, script ? script.id + ':' + script.updated : null), voiceState } });
+        sendState(true); frames?.request();
+        break;
       case 'cmd': command(m.c, m); break;
     }
   });
@@ -477,8 +483,9 @@ export function mountPrompter(root, code) {
   let lastSent = 0, prevSig = '', stateFlush = 0;
   function sendState(force = false) {
     if (!room.peersOf('controller').length || !platform.visible) return;
+    stage.measure();
     const now = performance.now();
-    const sig = `${engine.pos.toFixed(1)}|${engine.playing}|${engine.speed}|${Math.ceil(engine.cd)}|${engine.mode}|${engine.voiceIdx}|${voiceState}|${stage.w}x${stage.h}|${stage.max}|${stage.layout}|${commandTag}|${JSON.stringify(profile)}|${script?.id}:${script?.updated}|${syncTag}`;
+    const sig = `${engine.pos.toFixed(1)}|${engine.playing}|${engine.speed}|${Math.ceil(engine.cd)}|${engine.mode}|${engine.voiceIdx}|${voiceState}|${stage.w}x${stage.h}|${stage.geometry}|${stage.layout}|${commandTag}|${JSON.stringify(profile)}|${script?.id}:${script?.updated}|${syncTag}`;
     if (!force && sig === prevSig) return;
     if (!force && now - lastSent < 33) {
       if (!stateFlush) stateFlush = setTimeout(() => { stateFlush = 0; sendState(); }, 33 - (now - lastSent));

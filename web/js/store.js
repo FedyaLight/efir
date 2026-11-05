@@ -15,6 +15,8 @@ export const DEFAULTS = {
   uppercase: false,
   align: 'left',
   sidePad: 8,       // Percent of screen width.
+  leftPad: null,    // Null inherits the symmetric side margin.
+  rightPad: null,
   topPad: 40,       // Percent of screen height before the text.
   bottomPad: 70,    // Percent of screen height after the text.
   theme: 'studio',
@@ -219,6 +221,10 @@ function cleanSettings(value) {
   if (!value || typeof value !== 'object') return result;
   for (const [key, def] of Object.entries(DEFAULTS)) {
     const v = value[key];
+    if (key === 'leftPad' || key === 'rightPad') {
+      if (Number.isFinite(v)) result[key] = Math.max(0, Math.min(35, v));
+      continue;
+    }
     if (typeof v !== typeof def) continue;
     if (typeof def === 'number') { if (Number.isFinite(v)) result[key] = v; }
     else if (typeof def === 'boolean') result[key] = v;

@@ -20,7 +20,7 @@ In another terminal:
 
 ```sh
 npm install --prefix work/testing playwright peer@1.0.2
-work/testing/node_modules/.bin/playwright install chromium
+work/testing/node_modules/.bin/playwright install chromium webkit
 EFIR_URL=http://localhost:18765 node tests/relay.mjs
 EFIR_URL=http://localhost:18765 EFIR_LAN_URL=http://YOUR_WIFI_IP:18765 \
   node tests/browser.mjs
@@ -29,6 +29,7 @@ EFIR_URL=http://localhost:18765 EFIR_LAN_URL=http://YOUR_WIFI_IP:18765 \
 EFIR_URL=http://localhost:18765 node tests/layout.mjs
 EFIR_URL=http://localhost:18765 node tests/remotes.mjs
 EFIR_URL=http://localhost:18765 node tests/displays.mjs
+EFIR_URL=http://localhost:18765 node tests/synchronization.mjs
 node tests/hosting.mjs
 ```
 
@@ -42,6 +43,7 @@ On macOS, `http://0.0.0.0:18765` can provide an insecure Chromium context for
 | `hosting.mjs` | Static hosting without marker, real PeerJS broker, delayed cross-profile WebRTC, established link during broker loss |
 | `performance.mjs` | Three-screen frame, storage, transport and main-thread activity; hidden Gamepad and reduced-motion/offscreen demo lifecycle |
 | `displays.mjs` | Three readers with different wraps, format shading, actual preview geometry, targeted calibration, duplicate links, seeking, reload, rotation, leader failover and stale preview recovery |
+| `synchronization.mjs` | Chromium/WebKit passage alignment with accumulated layout differences, manual synchronization, independent shared margins and profile/backup persistence; optionally set `EFIR_SCRIPT` to a local TXT file |
 | `remotes.mjs` | Held key edges, modified keys, button learning, saved mappings, editing/dialog guards, nudge release, browser Gamepad signals |
 | `layout.mjs` | Six UI languages, light/dark, narrow/landscape/tablet/desktop, dialogs, icon-only exit and fullscreen labels |
 

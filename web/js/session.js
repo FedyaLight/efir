@@ -1,5 +1,5 @@
 // Restore positions by word and line offset across different screen sizes.
-// Equal sizes preserve exact pixels.
+// Equal measured layouts preserve exact pixels, including across browsers.
 export function captureSession(stage, engine, sid) {
   stage.measure();
   const word = stage.wordAt(engine.pos);
@@ -11,7 +11,7 @@ export function captureSession(stage, engine, sid) {
   const a = lines[lo] ?? 0, b = lines[lo + 1] ?? a;
   const ay = stage.tops?.[a] ?? stage.markerY, by = stage.tops?.[b] ?? ay;
   const f = (y - ay) / (by > ay ? by - ay : stage.s.fontSize * stage.s.lineHeight);
-  return { ...engine.snapshot(), sid, atStart: engine.pos < .01, atEnd: stage.max > 0 && engine.pos >= stage.max, layout: stage.layout, anchor: { a, b, f }, vw: stage.w, vh: stage.h, word,
+  return { ...engine.snapshot(), sid, atStart: engine.pos < .01, atEnd: stage.max > 0 && engine.pos >= stage.max, layout: stage.layout, geometry: stage.geometry, anchor: { a, b, f }, vw: stage.w, vh: stage.h, word,
     offset: (engine.pos + stage.markerY - top) / (stage.s.fontSize * stage.s.lineHeight) };
 }
 
@@ -21,7 +21,7 @@ export function sessionPosition(stage, state) {
   stage.measure();
   if (state.atStart) return 0;
   if (state.atEnd) return stage.max;
-  if (state.vw === stage.w && state.vh === stage.h && (!state.layout || state.layout === stage.layout)) return stage.clamp(Number.isFinite(state.pos) ? state.pos : 0);
+  if (state.vw === stage.w && state.vh === stage.h && state.layout === stage.layout && state.geometry === stage.geometry) return stage.clamp(Number.isFinite(state.pos) ? state.pos : 0);
   const anchor = state.anchor;
   if (anchor && Number.isInteger(anchor.a) && Number.isInteger(anchor.b) && Number.isFinite(anchor.f)) {
     const last = stage.words.length - 1;
