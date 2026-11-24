@@ -167,9 +167,14 @@ final class AppModel: ObservableObject {
         window.onSelectAddress = { [weak self] address in self?.selectAddress(address) }
         window.onSessionActive = { [weak self] active in self?.setSessionActive(active) }
         window.onClose = { [weak self, weak window] in
-            self?.windows.removeAll { $0 === window }
-            self?.setSessionActive(false)
-            if self?.windows.isEmpty == true { self?.quitCompletion?() }
+            guard let self else { return }
+            self.windows.removeAll { $0 === window }
+            self.setSessionActive(false)
+            if self.windows.isEmpty {
+                let completion = self.quitCompletion
+                self.quitCompletion = nil
+                completion?()
+            }
         }
         windows.append(window)
         window.show()

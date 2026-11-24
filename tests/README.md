@@ -86,6 +86,17 @@ EFIR_URL=http://localhost:19877 node tests/relay.mjs
 The fixture holds the service for 180 seconds with its controller closed.
 Protocol assertions remain in `relay.mjs`.
 
+## macOS window close and quit
+
+```sh
+bash tests/mac-close.sh
+```
+
+This builds a Debug app and runs the native AppKit and WebKit lifecycle in an
+isolated test bundle. It verifies persistence and relay delivery on normal
+close, bounded close with a confirm sheet or busy JavaScript, and deferred
+application termination. It needs a macOS desktop session.
+
 ## Linux native WebView and speech runtime
 
 Install Efir, `tauri-driver`, `WebKitWebDriver` and Xvfb in a separate test profile.

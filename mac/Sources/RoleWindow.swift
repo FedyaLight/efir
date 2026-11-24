@@ -16,6 +16,7 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
     private var addresses: [LANAddress]
     private var lastVisible: Bool?
     private var closing = false
+    private var closeTimeout: Timer?
 
     init(code: String, port: Int, origin: String, addresses: [LANAddress], speech: NativeSpeech) {
         self.port = port
@@ -126,16 +127,44 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
         guard !closing else { return }
         closing = true
         speech.stop(owner: webView)
-        webView.evaluateJavaScript("window.efirNative?.onClose?.()") { [self] _, _ in
-            window.close()
+
+        // A modal JS dialog or unresponsive WebContent can block this evaluation.
+        let timeout = Timer(timeInterval: 3, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.finishClose() }
+        }
+        closeTimeout = timeout
+        RunLoop.main.add(timeout, forMode: .common)
+        // AppKit runs a modal loop until the reply to .terminateLater.
+        RunLoop.main.add(timeout, forMode: .modalPanel)
+        webView.evaluateJavaScript("window.efirNative?.onClose?.()") { [weak self] _, _ in
+            self?.finishClose()
         }
     }
 
+    private func finishClose() {
+        guard let timeout = closeTimeout else { return }
+        closeTimeout = nil
+        timeout.invalidate()
+        window.close()
+    }
+
     func windowWillClose(_ notification: Notification) {
+        window.delegate = nil
+        if !closing {
+            closing = true
+            speech.stop(owner: webView)
+        }
+        closeTimeout?.invalidate()
+        closeTimeout = nil
+        for sheet in window.sheets { window.endSheet(sheet, returnCode: .cancel) }
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "efir")
         webView.stopLoading()
-        onClose?()
+        window.contentView = nil
+        let completion = onClose
+        onClose = nil
+        completion?()
     }
+
     func windowDidEnterFullScreen(_ notification: Notification) {
         webView.evaluateJavaScript("window.efirNative?.onFullscreen?.(true)")
     }
@@ -181,7 +210,12 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
         _ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
         initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void
     ) {
+        guard !closing else {
+            completionHandler(nil)
+            return
+        }
         let panel = NSOpenPanel()
+        panel.preventsApplicationTerminationWhenModal = false
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.canChooseDirectories = false
         panel.beginSheetModal(for: window) { result in
@@ -193,10 +227,16 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
         _ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
         initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void
     ) {
+        guard !closing else {
+            completionHandler(false)
+            return
+        }
         let alert = NSAlert()
         alert.messageText = message
         alert.addButton(withTitle: l("Да"))
         alert.addButton(withTitle: l("Отмена"))
+        // Let AppKit reach applicationShouldTerminate while JavaScript is blocked.
+        alert.window.preventsApplicationTerminationWhenModal = false
         alert.beginSheetModal(for: window) { completionHandler($0 == .alertFirstButtonReturn) }
     }
 
@@ -207,7 +247,12 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
         _ download: WKDownload, decideDestinationUsing response: URLResponse,
         suggestedFilename: String, completionHandler: @escaping (URL?) -> Void
     ) {
+        guard !closing else {
+            completionHandler(nil)
+            return
+        }
         let panel = NSSavePanel()
+        panel.preventsApplicationTerminationWhenModal = false
         panel.nameFieldStringValue = suggestedFilename
         panel.beginSheetModal(for: window) { completionHandler($0 == .OK ? panel.url : nil) }
     }
