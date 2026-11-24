@@ -1,6 +1,8 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use libloading::Library;
+use serde::Deserialize;
 use std::{
+    borrow::Cow,
     ffi::{c_char, c_int, c_void, CStr, CString},
     path::PathBuf,
     sync::{
@@ -8,37 +10,71 @@ use std::{
         mpsc, Arc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub type SpeechEvent = Arc<dyn Fn(&str, Option<&str>, bool) + Send + Sync>;
+#[derive(Default)]
 pub struct Speech {
+    requests: Option<mpsc::Sender<Recognition>>,
+    stop: Option<Arc<AtomicBool>>,
+}
+
+struct Recognition {
+    model: PathBuf,
+    runtime: PathBuf,
     stop: Arc<AtomicBool>,
+    emit: SpeechEvent,
 }
-impl Default for Speech {
-    fn default() -> Self {
-        Self {
-            stop: Arc::new(AtomicBool::new(false)),
-        }
-    }
-}
+
 impl Speech {
     pub fn stop(&self) {
-        self.stop.store(true, Ordering::Relaxed);
+        if let Some(stop) = &self.stop {
+            stop.store(true, Ordering::Release);
+        }
     }
+
     pub fn start(&mut self, model: PathBuf, runtime: PathBuf, emit: SpeechEvent) {
         self.stop();
-        self.stop = Arc::new(AtomicBool::new(false));
-        let stop = self.stop.clone();
-        thread::spawn(move || {
-            if let Err(error) = recognize(model, runtime, &stop, &emit) {
-                if !stop.load(Ordering::Relaxed) {
-                    emit("unsupported", Some(&error), false);
+        let requests = self.requests.get_or_insert_with(|| {
+            let (sender, receiver) = mpsc::channel::<Recognition>();
+            thread::spawn(move || {
+                while let Ok(request) = receiver.recv() {
+                    // A rapid switch can queue several superseded requests.
+                    let Recognition {
+                        model,
+                        runtime,
+                        stop,
+                        emit,
+                    } = receiver.try_iter().last().unwrap_or(request);
+                    if stop.load(Ordering::Acquire) {
+                        continue;
+                    }
+                    let report = |kind: &str, text: Option<&str>, final_result: bool| {
+                        if !stop.load(Ordering::Acquire) {
+                            emit(kind, text, final_result);
+                        }
+                    };
+                    if let Err(error) = recognize(model, runtime, &stop, &report) {
+                        report("unsupported", Some(&error), false);
+                    }
+                    // The stream and Vosk instance have been dropped before
+                    // this worker starts the next request.
                 }
-            }
+            });
+            sender
+        });
+        let stop = Arc::new(AtomicBool::new(false));
+        self.stop = Some(stop.clone());
+        let _ = requests.send(Recognition {
+            model,
+            runtime,
+            stop,
+            emit,
         });
     }
 }
+
 impl Drop for Speech {
     fn drop(&mut self) {
         self.stop();
@@ -123,11 +159,54 @@ impl Vosk {
         })
     }
 }
+const AUDIO_BUFFERS: usize = 16;
+const AUDIO_SAMPLES: usize = 2048;
+const PARTIAL_INTERVAL: Duration = Duration::from_millis(100);
+
+fn input_stream<T: cpal::SizedSample + 'static>(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    ready: mpsc::SyncSender<Vec<i16>>,
+    free: mpsc::Receiver<Vec<i16>>,
+    errors: mpsc::SyncSender<cpal::StreamError>,
+    downmix: fn(&[T]) -> i16,
+) -> Result<cpal::Stream, cpal::BuildStreamError> {
+    let channels = usize::from(config.channels);
+    device.build_input_stream(
+        config,
+        move |input: &[T], _| {
+            for chunk in input.chunks(AUDIO_SAMPLES * channels) {
+                let Ok(mut audio) = free.try_recv() else {
+                    break;
+                };
+                audio.clear();
+                audio.extend(chunk.chunks_exact(channels).map(downmix));
+                // The ready queue can hold the entire fixed pool.
+                if ready.try_send(audio).is_err() {
+                    break;
+                }
+            }
+        },
+        move |error| {
+            let _ = errors.try_send(error);
+        },
+        None,
+    )
+}
+
+#[derive(Deserialize)]
+struct Transcript<'a> {
+    #[serde(default, borrow)]
+    text: Cow<'a, str>,
+    #[serde(default, borrow)]
+    partial: Cow<'a, str>,
+}
+
 fn recognize(
     model: PathBuf,
     runtime: PathBuf,
-    stop: &Arc<AtomicBool>,
-    emit: &SpeechEvent,
+    stop: &AtomicBool,
+    emit: &dyn Fn(&str, Option<&str>, bool),
 ) -> Result<(), String> {
     let device = cpal::default_host()
         .default_input_device()
@@ -135,59 +214,48 @@ fn recognize(
     let supported = device.default_input_config().map_err(|e| e.to_string())?;
     let format = supported.sample_format();
     let config: cpal::StreamConfig = supported.into();
-    let (sender, receiver) = mpsc::sync_channel::<Vec<i16>>(16);
-    let channels = config.channels as usize;
     let vosk = unsafe { Vosk::open(model, runtime, config.sample_rate as f32)? };
-    if stop.load(Ordering::Relaxed) {
+    if stop.load(Ordering::Acquire) {
         return Ok(());
     }
-    let error_emit = emit.clone();
-    let error_stop = stop.clone();
-    let err = move |e: cpal::StreamError| {
-        error_emit("denied", Some(&e.to_string()), false);
-        error_stop.store(true, Ordering::Relaxed);
-    };
+    let (input, audio) = mpsc::sync_channel(AUDIO_BUFFERS);
+    let (recycle, free) = mpsc::sync_channel(AUDIO_BUFFERS);
+    let (errors, error) = mpsc::sync_channel(1);
+    for _ in 0..AUDIO_BUFFERS {
+        recycle.try_send(Vec::with_capacity(AUDIO_SAMPLES)).unwrap();
+    }
     let stream = match format {
-        cpal::SampleFormat::F32 => device.build_input_stream(
+        cpal::SampleFormat::F32 => input_stream(
+            &device,
             &config,
-            move |data: &[f32], _| {
-                let audio = data
-                    .chunks(channels)
-                    .map(|c| {
-                        (c.iter().sum::<f32>() / channels as f32 * 32767.).clamp(-32768., 32767.)
-                            as i16
-                    })
-                    .collect();
-                let _ = sender.try_send(audio);
+            input,
+            free,
+            errors,
+            |samples: &[f32]| {
+                (samples.iter().sum::<f32>() / samples.len() as f32 * 32767.).clamp(-32768., 32767.)
+                    as i16
             },
-            err,
-            None,
         ),
-        cpal::SampleFormat::I16 => device.build_input_stream(
+        cpal::SampleFormat::I16 => input_stream(
+            &device,
             &config,
-            move |data: &[i16], _| {
-                let audio = data
-                    .chunks(channels)
-                    .map(|c| (c.iter().map(|v| *v as i32).sum::<i32>() / channels as i32) as i16)
-                    .collect();
-                let _ = sender.try_send(audio);
+            input,
+            free,
+            errors,
+            |samples: &[i16]| {
+                (samples.iter().map(|&v| i32::from(v)).sum::<i32>() / samples.len() as i32) as i16
             },
-            err,
-            None,
         ),
-        cpal::SampleFormat::U16 => device.build_input_stream(
+        cpal::SampleFormat::U16 => input_stream(
+            &device,
             &config,
-            move |data: &[u16], _| {
-                let audio = data
-                    .chunks(channels)
-                    .map(|c| {
-                        (c.iter().map(|v| *v as i32 - 32768).sum::<i32>() / channels as i32) as i16
-                    })
-                    .collect();
-                let _ = sender.try_send(audio);
+            input,
+            free,
+            errors,
+            |samples: &[u16]| {
+                (samples.iter().map(|&v| i32::from(v) - 32768).sum::<i32>() / samples.len() as i32)
+                    as i16
             },
-            err,
-            None,
         ),
         _ => return Err("Формат микрофона не поддерживается".into()),
     }
@@ -195,14 +263,28 @@ fn recognize(
     stream.play().map_err(|e| e.to_string())?;
     emit("listening", None, false);
     let mut last = String::new();
-    while !stop.load(Ordering::Relaxed) {
-        let data = match receiver.recv_timeout(Duration::from_millis(150)) {
+    let mut next_partial = Instant::now();
+    while !stop.load(Ordering::Acquire) {
+        if let Ok(error) = error.try_recv() {
+            emit("denied", Some(&error.to_string()), false);
+            break;
+        }
+        let data = match audio.recv_timeout(Duration::from_millis(100)) {
             Ok(data) => data,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(_) => break,
         };
-        let final_result =
-            unsafe { (vosk.accept)(vosk.rec, data.as_ptr(), data.len() as c_int) > 0 };
+        let result = unsafe { (vosk.accept)(vosk.rec, data.as_ptr(), data.len() as c_int) };
+        let _ = recycle.try_send(data);
+        if result < 0 {
+            return Err("Vosk waveform".into());
+        }
+        let final_result = result > 0;
+        let now = Instant::now();
+        if !final_result && now < next_partial {
+            continue;
+        }
+        next_partial = now + PARTIAL_INTERVAL;
         let raw = unsafe {
             if final_result {
                 (vosk.result)(vosk.rec)
@@ -213,16 +295,20 @@ fn recognize(
         if raw.is_null() {
             return Err("Vosk result".into());
         }
-        let raw = unsafe { CStr::from_ptr(raw) }.to_string_lossy();
-        let result: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        let text = result[if final_result { "text" } else { "partial" }]
-            .as_str()
-            .unwrap_or("");
+        let result: Transcript<'_> =
+            serde_json::from_slice(unsafe { CStr::from_ptr(raw) }.to_bytes())
+                .map_err(|e| e.to_string())?;
+        let text = if final_result {
+            result.text
+        } else {
+            result.partial
+        };
         if !text.is_empty() && (last != text || final_result) {
-            emit("transcript", Some(text), final_result);
-            last = text.into();
+            emit("transcript", Some(&text), final_result);
+            last.clear();
+            last.push_str(&text);
         }
-        if final_result {
+        if final_result && !last.is_empty() {
             emit("listening", None, false);
             last.clear();
         }
