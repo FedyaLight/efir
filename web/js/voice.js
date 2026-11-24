@@ -5,27 +5,27 @@ import { normWord, wordChunks } from './words.js';
 import { localMode, nativeVoice } from './environment.js';
 import { toast } from './ui.js';
 import { platform } from './platform.js';
+import { uid } from './store.js';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 export const voiceSupported = nativeVoice || (!!SR && (!localMode || window.isSecureContext));
 let nativeTracker = null;
 if (nativeVoice) {
-  window.efirNative = {
-    ...window.efirNative,
-    onTranscript(text, isFinal) {
-      if (!nativeTracker?.active) return;
+  Object.assign(window.efirNative ||= {}, {
+    onTranscript(text, isFinal, session) {
+      if (!nativeTracker?.active || (session != null && session !== nativeTracker.session)) return;
       nativeTracker.onTranscript(text);
       nativeTracker._hear(text);
       nativeTracker.onState('hearing');
     },
-    onState(state, message) {
-      if (!nativeTracker?.active) return;
+    onState(state, message, session) {
+      if (!nativeTracker?.active || (session != null && session !== nativeTracker.session)) return;
       nativeTracker.onState(state);
       if (state === 'off' || state === 'denied' || state === 'unsupported') nativeTracker.active = false;
       if (message) toast(message, 'bad');
     },
-  };
+  });
 }
 
 function lev1(a, b) {
@@ -44,7 +44,7 @@ function lev1(a, b) {
 
 function sim(a, b) {
   if (!a || !b) return 0;
-  const w = /^[\p{Script=Han}]$/u.test(a) ? 1 : Math.min(1, 0.35 + Math.min(a.length, b.length) * 0.16); // Short words carry less weight.
+  const w = a.length <= 2 && /^[\p{Script=Han}]$/u.test(a) ? 1 : Math.min(1, 0.35 + Math.min(a.length, b.length) * 0.16); // Short words carry less weight.
   if (a === b) return w;
   const m = Math.min(a.length, b.length);
   if (m < 3) return 0;
@@ -58,7 +58,11 @@ function sim(a, b) {
 export class VoiceTracker {
   constructor({ onIndex, onState, onTranscript }) {
     this.onIndex = onIndex;
-    this.onState = onState || (() => {});
+    this.onState = state => {
+      if (state === this.state) return;
+      this.state = state;
+      onState?.(state);
+    };
     this.onTranscript = onTranscript || (() => {});
     this.words = [];
     this.cur = 0;
@@ -72,12 +76,15 @@ export class VoiceTracker {
 
   start(lang) {
     if (!voiceSupported) { this.onState('unsupported'); return; }
+    if (this.active) return;
+    this.state = null;
     this.lang = lang;
     this.active = true;
     this.lastTail = '';
     if (nativeVoice) {
       nativeTracker = this;
-      platform.send('voiceStart', { lang: lang || 'ru-RU' });
+      this.session = uid();
+      platform.send('voiceStart', { lang: lang || 'ru-RU', session: this.session });
     } else this._spawn();
   }
 
@@ -87,21 +94,24 @@ export class VoiceTracker {
       platform.send('voiceStop');
       nativeTracker = null;
     }
-    if (this.rec) { try { this.rec.abort(); } catch { /* */ } }
+    clearTimeout(this.respawnTimer);
+    const rec = this.rec;
     this.rec = null;
+    if (rec) { try { rec.abort(); } catch { /* */ } }
     this.onState('off');
   }
 
   _spawn() {
-    if (!this.active) return;
+    if (!this.active || this.rec) return;
     const rec = new SR();
     this.rec = rec;
     rec.lang = this.lang || 'ru-RU';
     rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
-    rec.onstart = () => this.onState('listening');
+    rec.onstart = () => { if (this.rec === rec && this.active) this.onState('listening'); };
     rec.onresult = (e) => {
+      if (this.rec !== rec || !this.active) return;
       const res = e.results;
       const last = res[res.length - 1];
       const prev = res.length > 1 ? res[res.length - 2][0].transcript : '';
@@ -110,6 +120,7 @@ export class VoiceTracker {
       this.onState('hearing');
     };
     rec.onerror = (e) => {
+      if (this.rec !== rec || !this.active) return;
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         this.active = false;
         this.onState('denied');
@@ -120,17 +131,29 @@ export class VoiceTracker {
     rec.onend = () => {
       if (this.rec !== rec) return;
       // Chrome and Safari may stop after silence; restart recognition.
-      if (this.active) setTimeout(() => this._spawn(), 120);
-      else this.onState('off');
+      this.rec = null;
+      if (this.active) this.respawnTimer = setTimeout(() => this._spawn(), 120);
     };
-    try { rec.start(); } catch { setTimeout(() => this._spawn(), 500); }
+    try { rec.start(); } catch {
+      this.rec = null;
+      this.respawnTimer = setTimeout(() => this._spawn(), 500);
+    }
   }
 
   _hear(text) {
-    const heard = wordChunks(text).map(normWord).filter(Boolean);
-    if (!heard.length) return;
-    const K = Math.min(heard.length, 6);
-    const tail = heard.slice(-K);
+    // Recognizers report cumulative transcripts. Expand the suffix only if
+    // it does not contain six complete, matchable words.
+    let tail;
+    for (let width = 256;; width *= 2) {
+      let start = Math.max(0, text.length - width);
+      if (start && /[\uDC00-\uDFFF]/.test(text[start])) start--;
+      const chunks = wordChunks(text.slice(start));
+      if (start) chunks.shift();
+      tail = chunks.map(normWord).filter(Boolean).slice(-6);
+      if (!start || tail.length === 6) break;
+    }
+    const K = tail.length;
+    if (!K) return;
     const key = tail.join(' ');
     if (key === this.lastTail) return;
     this.lastTail = key;

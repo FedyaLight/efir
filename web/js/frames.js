@@ -10,7 +10,6 @@ export class FrameLoop {
     };
     this.onInvalidate = () => this.request();
     stage.onInvalidate = this.onInvalidate;
-    document.addEventListener('visibilitychange', this.onVisible);
     platform.events.addEventListener('visible', this.onVisible);
     this.request();
   }
@@ -38,7 +37,6 @@ export class FrameLoop {
   destroy() {
     this.dead = true;
     cancelAnimationFrame(this.raf);
-    document.removeEventListener('visibilitychange', this.onVisible);
     platform.events.removeEventListener('visible', this.onVisible);
     if (this.stage.onInvalidate === this.onInvalidate) this.stage.onInvalidate = null;
   }

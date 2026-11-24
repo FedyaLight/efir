@@ -90,5 +90,5 @@ window.addEventListener('storage', event => {
   try { latest = localStorage.getItem(KEY); } catch { return; }
   if (supported(latest)) setLanguage(latest, false);
 });
-if (platform.native) window.efirNative = { ...window.efirNative, onLanguage: code => setLanguage(code, false) };
+if (platform.native) Object.assign(window.efirNative ||= {}, { onLanguage: code => setLanguage(code, false) });
 applyLanguage();

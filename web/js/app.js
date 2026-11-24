@@ -3,17 +3,16 @@ import { platform } from './platform.js';
 import { t, translateUI, onLanguageChange, languagePicker, uiLanguage } from './i18n.js';
 
 import { store, newRoomCode, cleanRoom, DEFAULTS } from './store.js';
-import { mountController } from './controller.js';
-import { mountPrompter } from './prompter.js';
 import { icon } from './ui.js';
 import { Stage, Engine } from './stage.js';
 import { FrameLoop } from './frames.js';
 
 
 const app = document.getElementById('app');
-let current = null;
+let current = null, routeVersion = 0;
 
-function route() {
+async function route() {
+  const version = ++routeVersion;
   if (current && current.destroy) current.destroy();
   current = null;
   app.innerHTML = '';
@@ -24,7 +23,9 @@ function route() {
     const code = localMode ? 'LOCAL' : cleanRoom(m[2]);
     store.setRoom(code);
     const role = localMode ? (platform.role === 'controller' ? 'c' : 'p') : m[1];
-    current = role === 'c' ? mountController(app, code) : mountPrompter(app, code);
+    const mount = role === 'c' ? (await import('./controller.js')).mountController : (await import('./prompter.js')).mountPrompter;
+    if (version !== routeVersion) return;
+    current = mount(app, code);
     if (localMode) document.body.classList.add('is-local');
   } else {
     current = mountHome(app);
@@ -33,7 +34,7 @@ function route() {
 
 window.addEventListener('hashchange', route);
 window.addEventListener('pageshow', e => { if (e.persisted) route(); });
-window.addEventListener('pagehide', () => { if (current && current.destroy) current.destroy(); });
+window.addEventListener('pagehide', () => { ++routeVersion; current?.destroy(); current = null; });
 
 // Home
 
@@ -122,7 +123,7 @@ function mountHome(root) {
     inView = entries[0].isIntersecting; updateDemo();
   }) : null;
   demoObserver?.observe(el.querySelector('.demo'));
-  document.addEventListener('visibilitychange', updateDemo);
+
   platform.events.addEventListener('visible', updateDemo);
   motion.addEventListener('change', updateDemo);
   updateDemo();
@@ -143,7 +144,7 @@ function mountHome(root) {
     location.hash = `#/${b.dataset.role}/${c}`;
   });
   return { destroy() { releaseTranslation(); releaseLanguage(); frames.destroy(); stage.destroy(); clearTimeout(restart); demoObserver?.disconnect();
-    document.removeEventListener('visibilitychange', updateDemo); platform.events.removeEventListener('visible', updateDemo); motion.removeEventListener('change', updateDemo); } };
+    platform.events.removeEventListener('visible', updateDemo); motion.removeEventListener('change', updateDemo); } };
 }
 
 if (localMode) await document.fonts?.ready;

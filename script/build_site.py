@@ -41,7 +41,6 @@ def build():
         shutil.copy(ROOT / f"docs/assets/download-{name}.svg", assets)
     # Preserve old session links as well as the new root entry point.
     shutil.copytree(ROOT / "web", OUT, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".*", "README.md", "netlify.toml"))
-    shutil.copytree(ROOT / "web", OUT / "app", ignore=shutil.ignore_patterns(".*", "README.md", "netlify.toml"))
     (OUT / ".nojekyll").touch()
 
     for language, locale in LOCALES.items():
@@ -108,10 +107,8 @@ def build():
     app_html = (OUT / "index.html").read_text().replace("</head>", "  " + metadata + "</head>")
     (OUT / "index.html").write_text(app_html)
     # Previously published language URLs also open the app without a redirect.
-    for language in LOCALES:
-        if language == "en":
-            continue
-        directory = OUT / language
+    for alias in ("app", *(language for language in LOCALES if language != "en")):
+        directory = OUT / alias
         directory.mkdir(exist_ok=True)
         (directory / "index.html").write_text(app_html.replace('<head>', '<head>\n  <base href="../">', 1))
 

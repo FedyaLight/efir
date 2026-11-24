@@ -1,6 +1,6 @@
 // Device-local input bindings. HID keyboards need no device permission.
 import { t } from './i18n.js';
-import { modal } from './ui.js';
+import { modal, escapeHtml as esc } from './ui.js';
 import { platform } from './platform.js';
 
 const KEY = 'efir.remotes.v1';
@@ -20,7 +20,6 @@ const DEFAULT = {
 };
 const REPEAT = new Set(['faster', 'slower', 'fontUp', 'fontDown']);
 const HELD = new Set(['forward', 'back']);
-const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const tokenFor = e => e.code && e.code !== 'Unidentified' ? 'code:' + e.code : 'key:' + e.key;
 const label = token => token.replace(/^(code:|key:)/, '').replace(/^Key/, '').replace(/^pad:button:/, 'Gamepad #').replace(/^pad:axis:/, 'Gamepad axis ');
 
@@ -83,10 +82,9 @@ export function mountRemotes(handlers) {
     fire(token, action);
   }
   const onUp = e => stop(tokenFor(e));
-  const onHidden = () => { if (document.hidden) release(); };
   document.addEventListener('keydown', onKey, true);
   document.addEventListener('keyup', onUp, true);
-  document.addEventListener('visibilitychange', onHidden);
+
 
   // Explicit opt-in: axes/buttons vary by hardware, so learn rather than guess.
   function poll() {
@@ -114,7 +112,7 @@ export function mountRemotes(handlers) {
       for (const token of [...pressed.keys()]) if (token.startsWith('pad:') && !signals.has(token)) stop(token);
       for (const token of signals) {
         if (learning && !pressed.has(token)) { pressed.set(token, { action: 'none', at: performance.now() }); learn(token); break; }
-        if (!document.querySelector('.modal-wrap') && !document.activeElement?.matches('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) fire(token, bindings()[token]);
+        if (!document.querySelector('.modal-wrap') && !document.activeElement?.matches('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) fire(token, config.bindings[token]);
       }
     }
     raf = requestAnimationFrame(poll);
@@ -123,7 +121,7 @@ export function mountRemotes(handlers) {
   const stopPoll = () => { cancelAnimationFrame(raf); raf = 0; release(); };
   const startPoll = () => { if (!raf && canPoll()) raf = requestAnimationFrame(poll); };
   const onActivity = () => { if (!platform.visible) release(); canPoll() ? startPoll() : stopPoll(); };
-  document.addEventListener('visibilitychange', onActivity);
+
   platform.events.addEventListener('visible', onActivity);
   window.addEventListener('blur', stopPoll);
   window.addEventListener('focus', startPoll);
@@ -156,7 +154,7 @@ export function mountRemotes(handlers) {
     destroy() {
       dead = true; release(); dialog?.close(); cancelAnimationFrame(raf);
       document.removeEventListener('keydown', onKey, true); document.removeEventListener('keyup', onUp, true);
-      document.removeEventListener('visibilitychange', onHidden); document.removeEventListener('visibilitychange', onActivity);
+
       platform.events.removeEventListener('visible', onActivity);
       window.removeEventListener('blur', stopPoll); window.removeEventListener('focus', startPoll);
     },

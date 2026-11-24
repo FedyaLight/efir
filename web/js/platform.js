@@ -2,21 +2,38 @@
 // the interface does not branch on OS names.
 const legacy = window.webkit?.messageHandlers?.efir;
 const host = () => window.efirNative || {};
-let fullscreen = false;
+let nativeFullscreen = false;
 let foreground = true;
 const events = new EventTarget();
+const fullscreenActive = () => nativeFullscreen || !!(document.fullscreenElement || document.webkitFullscreenElement);
+let visible = !document.hidden, fullscreen = fullscreenActive();
+function updateVisible() {
+  const active = foreground && !document.hidden;
+  if (active === visible) return;
+  visible = active;
+  events.dispatchEvent(new Event('visible'));
+}
+function updateFullscreen() {
+  const active = fullscreenActive();
+  if (active === fullscreen) return;
+  fullscreen = active;
+  events.dispatchEvent(new Event('fullscreen'));
+}
+document.addEventListener('visibilitychange', updateVisible);
+document.addEventListener('fullscreenchange', updateFullscreen);
+document.addEventListener('webkitfullscreenchange', updateFullscreen);
 if (typeof host().postMessage === 'function' || legacy) {
-  window.efirNative = { ...host(),
-    onFullscreen(active) { fullscreen = active === true; events.dispatchEvent(new Event('fullscreen')); },
+  Object.assign(window.efirNative ||= {}, {
+    onFullscreen(active) { nativeFullscreen = active === true; updateFullscreen(); },
     onAwake(active) { events.dispatchEvent(new CustomEvent('awake', { detail: active === true })); },
-    onVisible(active) { foreground = active === true; events.dispatchEvent(new Event('visible')); },
-  };
+    onVisible(active) { foreground = active === true; updateVisible(); },
+  });
 }
 
 export const platform = {
   events,
   get fullscreen() { return fullscreen; },
-  get visible() { return foreground && !document.hidden; },
+  get visible() { return visible; },
   get native() { return typeof host().postMessage === 'function' || !!legacy; },
   get role() { return host().role || (legacy ? 'controller' : null); },
   get name() { return host().deviceName || (legacy ? 'Mac' : 'Компьютер'); },

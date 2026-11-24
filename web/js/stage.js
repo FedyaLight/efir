@@ -1,3 +1,4 @@
+import { escapeHtml as esc } from './ui.js';
 import { t, translateUI, onLanguageChange } from './i18n.js';
 import { normWord, wordChunks } from './words.js';
 import { layoutSignature } from './display-profile.js';
@@ -7,9 +8,10 @@ export { normWord } from './words.js';
 // the reader's CSS dimensions before scaling, keeping line breaks, padding
 // and text positions aligned.
 
-const esc = (s) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-export function parseScript(text) {
+let lastParsed;
+function parseScript(text) {
+  if (lastParsed && lastParsed.text === text) return lastParsed.script;
   const words = [];
   const sections = [];
   const out = [];
@@ -52,8 +54,27 @@ export function parseScript(text) {
     }
     flush();
   }
-  if (!out.length) out.push(`<p class="empty">${esc(t('Текст пуст — откройте редактор на пульте.'))}</p>`);
-  return { html: out.join(''), words, sections };
+  const lang = /\p{Script=Han}/u.test(text) ? 'zh-Hans' : /\p{Script=Devanagari}/u.test(text) ? 'hi' : /\p{Script=Arabic}/u.test(text) ? 'ar' : 'und';
+  lastParsed = { text, script: { html: out.join(''), words, sections, lang } };
+  return lastParsed.script;
+}
+
+// Keep the same word at the reading line when layout changes.
+export function relayout(stage, engine, apply) {
+  let anchor = null;
+  if (engine.pos > 1 && stage.s) stage.measure();
+  if (engine.pos > 1 && stage.tops && stage.tops.length) {
+    const i = stage.wordAt(engine.pos);
+    anchor = { i, off: engine.pos + stage.markerY - stage.tops[i], lh: stage.s.fontSize * stage.s.lineHeight };
+  }
+  apply();
+  if (anchor) {
+    stage.measure();
+    const lh = stage.s.fontSize * stage.s.lineHeight;
+    const t = stage.tops[Math.min(anchor.i, stage.tops.length - 1)] || 0;
+    engine.pos = stage.clamp(t + anchor.off * (lh / anchor.lh) - stage.markerY);
+    engine.target = null;
+  }
 }
 
 export class Stage {
@@ -138,11 +159,12 @@ export class Stage {
 
   setScript(text) {
     const p = parseScript(text);
-    this.text.lang = /\p{Script=Han}/u.test(text) ? 'zh-Hans' : /\p{Script=Devanagari}/u.test(text) ? 'hi' : /\p{Script=Arabic}/u.test(text) ? 'ar' : 'und';
-    this.text.innerHTML = p.html;
+    this.text.lang = p.lang;
+    this.text.innerHTML = p.html || `<p class="empty">${esc(t('Текст пуст — откройте редактор на пульте.'))}</p>`;
     this.words = p.words;
     this.sections = p.sections;
     this.wordEls = this.text.querySelectorAll('.w');
+    this.secEls = this.text.querySelectorAll('.sec');
     this.readIdx = -1;
     this.invalidate();
   }
@@ -234,7 +256,7 @@ export class Stage {
       hash = Math.imul(hash ^ Math.round(this.tops[i] * 2), 16777619);
     }
     this.geometry = `${n}:${this.max}:${hash >>> 0}`;
-    this.secTops = [...this.text.querySelectorAll('.sec')].map(e => e.offsetTop);
+    this.secTops = Array.from(this.secEls || [], e => e.offsetTop);
   }
 
   get layout() { return this._layout || layoutSignature({}); }
@@ -304,7 +326,6 @@ export class Stage {
     }
     if (this.readIdx >= 0 && this.wordEls[this.readIdx]) this.wordEls[this.readIdx].classList.remove('now');
     if (idx >= 0 && this.wordEls[idx]) this.wordEls[idx].classList.add('now');
-    if (idx < 0) this.wordEls.forEach(e => e.classList.remove('read', 'now'));
     this.readIdx = idx;
   }
 
@@ -335,9 +356,9 @@ export class Stage {
     // HUD
     if (this.s?.showTimer) {
       const pps = this.pxPerSec(st.speed || 1);
-      const t = fmt(pos / pps), r = '−' + fmt((this.max - pos) / pps);
-      if (this.hudEl.textContent !== t) this.hudEl.textContent = t;
-      if (this.hudRm.textContent !== r) this.hudRm.textContent = r;
+      const elapsed = Math.round(pos / pps), remaining = Math.round((this.max - pos) / pps);
+      if (elapsed !== this._elapsed) { this._elapsed = elapsed; this.hudEl.textContent = fmt(elapsed); }
+      if (remaining !== this._remaining) { this._remaining = remaining; this.hudRm.textContent = '−' + fmt(remaining); }
     }
     if (this.s?.showProgress) {
       const progress = this.max ? pos / this.max : 0;

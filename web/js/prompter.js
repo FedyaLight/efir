@@ -1,15 +1,15 @@
 import { t, translateUI, onLanguageChange, languagePicker } from './i18n.js';
 import { localMode, hostName } from './environment.js';
 import { platform } from './platform.js';
-import { captureSession, restoreSession, sessionPosition } from './session.js';
+import { captureSession, restoreSession, sessionPosition, clampSpeed } from './session.js';
 
 // Reader: owns scroll position. The controller sends commands and receives
 // state at up to 30 updates per second.
 
-import { cleanDisplayProfile, displaySettings } from './display-profile.js';
+import { cleanDisplayProfile, displaySettings, LAYOUT_KEYS } from './display-profile.js';
 import { profileDialog } from './display-views.js';
 import { store, DEFAULTS, uid } from './store.js';
-import { Stage, Engine } from './stage.js';
+import { Stage, Engine, relayout } from './stage.js';
 import { mountRemotes } from './remotes.js';
 import { FrameLoop } from './frames.js';
 import { Room } from './net.js';
@@ -17,7 +17,6 @@ import { VoiceTracker, voiceSupported } from './voice.js';
 import { mountLanHelp } from './lan.js';
 import { icon, qrSvg, toggleFullscreen, keepAwake, roomUrl, toast, closeModals } from './ui.js';
 
-const LAYOUT_KEYS = ['leftPad', 'rightPad', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'uppercase', 'sidePad', 'topPad', 'bottomPad', 'markerPos', 'align'];
 
 export function deviceName() {
   if (platform.native) return platform.name;
@@ -26,24 +25,6 @@ export function deviceName() {
     : /iPhone/.test(ua) ? 'iPhone' : /Android/.test(ua) ? (/Mobile/.test(ua) ? 'Android' : t('Android‑планшет'))
     : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : t('Устройство');
   return dev;
-}
-
-// Keep the same word at the reading line when layout changes.
-export function relayout(stage, engine, apply) {
-  let anchor = null;
-  if (engine.pos > 1 && stage.s) stage.measure();
-  if (engine.pos > 1 && stage.tops && stage.tops.length) {
-    const i = stage.wordAt(engine.pos);
-    anchor = { i, off: engine.pos + stage.markerY - stage.tops[i], lh: stage.s.fontSize * stage.s.lineHeight };
-  }
-  apply();
-  if (anchor) {
-    stage.measure();
-    const lh = stage.s.fontSize * stage.s.lineHeight;
-    const t = stage.tops[Math.min(anchor.i, stage.tops.length - 1)] || 0;
-    engine.pos = stage.clamp(t + anchor.off * (lh / anchor.lh) - stage.markerY);
-    engine.target = null;
-  }
 }
 
 export function mountPrompter(root, code) {
@@ -76,7 +57,7 @@ export function mountPrompter(root, code) {
         <p class="p-wait-lead">${localMode ? t('Ждём пульт. Оставьте приложение Эфир на компьютере запущенным.') : t('Ждём пульт. Откройте сайт на втором устройстве и введите код комнаты')}</p>
         <div class="p-code">${code.split('').map(c => `<span>${c}</span>`).join('')}</div>
         <div class="p-wait-or"><span>или наведите камеру</span></div>
-        <div class="p-qr">${localMode ? '' : qrSvg(roomUrl('c', code))}</div>
+        <div class="p-qr"></div>
         <div class="p-wait-status"><i class="dot"></i><span class="st">Подключение…</span></div>
         <div class="p-lan"></div>
         <button class="pill-btn p-skip">Показать последний текст</button>
@@ -107,7 +88,7 @@ export function mountPrompter(root, code) {
         </div>
       </div>
     </div>
-    <div class="p-qr-pop"><div>${localMode ? '' : qrSvg(roomUrl('c', code))}<p>Пульт · комната <b>${code}</b></p></div></div>
+    <div class="p-qr-pop"><div><div class="p-qr-image"></div><p>Пульт · комната <b>${code}</b></p></div></div>
     <button class="p-mic">${icon('mic')}<span>Нажмите, чтобы включить микрофон</span></button>
     <div class="p-lost"><i class="dot"></i>Пульт не подключён${localMode ? '' : ` · <b>${code}</b>`}</div>`;
   root.appendChild(el);
@@ -123,13 +104,14 @@ export function mountPrompter(root, code) {
   requestAnimationFrame(() => { engine.pos = stage.clamp(cache.pos || 0); });
 
   const $ = (s) => el.querySelector(s);
-  const speedV = $('.p-speed-v');
+  const speedV = $('.p-speed-v'), lockBtn = $('.p-lock');
+  if (!localMode) qrSvg(roomUrl('c', code)).then(svg => { $('.p-qr').innerHTML = svg; $('.p-qr-image').innerHTML = svg; });
 
   // Networking
-  const room = new Room(code, 'prompter', () => ({
+  const room = new Room(code, 'prompter', (full = true) => ({
     vw: stage.w, vh: stage.h, name: profile.name || deviceName(), displayId, displayBorn, profile,
     sid: script ? script.id + ':' + script.updated : null,
-    session: captureSession(stage, engine, script ? script.id + ':' + script.updated : null), ready: currentReady(),
+    ...(full ? { session: captureSession(stage, engine, script ? script.id + ':' + script.updated : null) } : {}), ready: currentReady(),
   }));
   const setStatus = () => {
     const ctl = room.peersOf('controller').length;
@@ -145,7 +127,7 @@ export function mountPrompter(root, code) {
     if (ctl > 0) el.classList.add('met');
     el.classList.toggle('has-script', !!script);
   };
-  const lanHelp = mountLanHelp(el.querySelector('.p-lan'), room, () => room.peersOf('controller').length > 0);
+  const lanHelp = mountLanHelp(el.querySelector('.p-lan'), room, () => room.hasPeer('controller'));
   room.addEventListener('status', setStatus);
   room.addEventListener('link', setStatus);
   room.addEventListener('leave', setStatus);
@@ -192,7 +174,9 @@ export function mountPrompter(root, code) {
         if (m.leader !== leader || leader === room.id || m.state?.sid !== script?.id + ':' + script?.updated) break;
         restoreSession(stage, engine, m.state);
         voiceState = m.state.voiceState || 'off'; engine.voiceLive = voiceState === 'hearing';
-        speedV.textContent = engine.speed.toFixed(1); lastSent = 0; frames?.request();
+        const speed = engine.speed.toFixed(1);
+        if (speedV.textContent !== speed) speedV.textContent = speed;
+        frames?.request();
         break;
       case 'session':
         pendingSession = m;
@@ -234,7 +218,12 @@ export function mountPrompter(root, code) {
   }
 
   function applySettings(s) {
-    baseSettings = { ...DEFAULTS, ...s };
+    const nextBase = { ...DEFAULTS, ...s };
+    if (Object.keys(nextBase).some(k => nextBase[k] !== baseSettings[k]) || Object.keys(nextBase).length !== Object.keys(baseSettings).length) {
+      baseSettings = nextBase;
+      clearTimeout(settingsSave);
+      settingsSave = setTimeout(persist, 250);
+    }
     const next = displaySettings(baseSettings, profile);
     const layout = LAYOUT_KEYS.some(k => next[k] !== settings[k]);
     const prevLang = settings.voiceLang, prevDev = settings.voiceDevice;
@@ -245,7 +234,6 @@ export function mountPrompter(root, code) {
       tracker.stop();
       if (settings.voiceDevice === 'prompter' && (!leader || leader === room.id)) startVoice();
     }
-    persist(true);
     refreshTouchLock();
     refreshMirror();
   }
@@ -262,7 +250,7 @@ export function mountPrompter(root, code) {
     } else command(c, m);
   }
   function requestSeek(pos, smooth = false) {
-    if (!room.peersOf('controller').length) { seekTo(pos, smooth); return; }
+    if (!room.hasPeer('controller')) { seekTo(pos, smooth); return; }
     const state = captureSession(stage, { pos: stage.clamp(pos), snapshot: () => ({ ...engine.snapshot(), pos: stage.clamp(pos) }) }, script ? script.id + ':' + script.updated : null);
     room.send('control', { c: 'seek', state, smooth });
   }
@@ -308,7 +296,6 @@ export function mountPrompter(root, code) {
     speedV.textContent = engine.speed.toFixed(1);
     lastSent = 0; frames?.request(); // Send updated state promptly.
   }
-  const clampSpeed = (v) => Math.round(Math.max(0.1, Math.min(20, v)) * 10) / 10;
 
   // Voice
   const tracker = new VoiceTracker({
@@ -352,7 +339,7 @@ export function mountPrompter(root, code) {
   }
   $('.p-fullscreen').onclick = () => toggleFullscreen();
   const fullscreenChanged = () => {
-    const active = !!(platform.fullscreen || document.fullscreenElement || document.webkitFullscreenElement);
+    const active = platform.fullscreen;
     el.classList.toggle('is-fullscreen', active);
     const button = $('[data-a="fs"]');
     button.setAttribute('aria-pressed', String(active));
@@ -362,8 +349,8 @@ export function mountPrompter(root, code) {
     reportReady();
   };
   platform.events.addEventListener('fullscreen', fullscreenChanged);
-  document.addEventListener('fullscreenchange', fullscreenChanged);
-  document.addEventListener('webkitfullscreenchange', fullscreenChanged);
+
+
   fullscreenChanged();
   $('.p-skip').onclick = () => el.classList.add('met');
   $('.p-mic').onclick = () => { el.classList.remove('need-mic'); tracker.stop(); if (engine.mode === 'voice') startVoice(); };
@@ -444,7 +431,7 @@ export function mountPrompter(root, code) {
     requestSeek(engine.pos + e.deltaY * (settings.mirrorV ? -1 : 1), false);
   }, { passive: false });
   el.querySelector('.p-qr-pop').onclick = () => el.classList.remove('show-qr');
-  $('.p-lock').onclick = () => { touchUnlocked = !touchUnlocked; refreshTouchLock(); if (!lockState) showUI(); };
+  lockBtn.onclick = () => { touchUnlocked = !touchUnlocked; refreshTouchLock(); if (!lockState) showUI(); };
   function isTouchLocked() { return settings.touchLock && (engine.playing || engine.mode === 'voice') && !touchUnlocked; }
   function refreshTouchLock(force = false) {
     const reading = engine.playing || engine.mode === 'voice';
@@ -452,16 +439,16 @@ export function mountPrompter(root, code) {
     wasReading = reading;
     const locked = isTouchLocked();
     const hidden = !reading || !settings.touchLock;
-    if ($('.p-lock').hidden !== hidden) $('.p-lock').hidden = hidden;
+    if (lockBtn.hidden !== hidden) lockBtn.hidden = hidden;
     if (locked !== lockState || force) {
       lockState = locked; el.classList.toggle('touch-locked', locked);
-      $('.p-lock').innerHTML = icon(locked ? 'lock' : 'unlock');
-      $('.p-lock').setAttribute('aria-label', locked ? t('Разрешить касания. Также можно удерживать текст.') : t('Заблокировать касания'));
+      lockBtn.innerHTML = icon(locked ? 'lock' : 'unlock');
+      lockBtn.setAttribute('aria-label', locked ? t('Разрешить касания. Также можно удерживать текст.') : t('Заблокировать касания'));
       reportReady();
     }
   }
   function currentReady() {
-    return { awake, fullscreen: !!(platform.fullscreen || document.fullscreenElement || document.webkitFullscreenElement), visible: platform.visible, locked: isTouchLocked() };
+    return { awake, fullscreen: platform.fullscreen, visible: platform.visible, locked: isTouchLocked() };
   }
   function reportReady() {
     const ready = currentReady(), sig = JSON.stringify(ready);
@@ -480,24 +467,22 @@ export function mountPrompter(root, code) {
   });
 
   // Drawing and state exchange
-  let lastSent = 0, prevSig = '', stateFlush = 0;
+  let lastSent = 0, prevSig = '', stateFlush = 0, settingsSave = 0, lastSaved = performance.now();
   function sendState(force = false) {
-    if (!room.peersOf('controller').length || !platform.visible) return;
-    stage.measure();
+    if (!room.hasPeer('controller') || !platform.visible) return;
     const now = performance.now();
-    const sig = `${engine.pos.toFixed(1)}|${engine.playing}|${engine.speed}|${Math.ceil(engine.cd)}|${engine.mode}|${engine.voiceIdx}|${voiceState}|${stage.w}x${stage.h}|${stage.geometry}|${stage.layout}|${commandTag}|${JSON.stringify(profile)}|${script?.id}:${script?.updated}|${syncTag}`;
-    if (!force && sig === prevSig) return;
     if (!force && now - lastSent < 33) {
       if (!stateFlush) stateFlush = setTimeout(() => { stateFlush = 0; sendState(); }, 33 - (now - lastSent));
       return;
     }
+    stage.measure();
+    const sig = `${engine.pos.toFixed(1)}|${engine.playing}|${engine.speed}|${Math.ceil(engine.cd)}|${engine.mode}|${engine.voiceIdx}|${voiceState}|${stage.w}x${stage.h}|${stage.geometry}|${stage.layout}|${commandTag}|${script?.id}:${script?.updated}|${syncTag}`;
+    if (!force && sig === prevSig) return;
     prevSig = sig; lastSent = now;
     room.send('state', {
       ...captureSession(stage, engine, script ? script.id + ':' + script.updated : null),
       command: commandTag,
-      pos: engine.pos, playing: engine.playing, speed: engine.speed, cd: engine.cd,
-      mode: engine.mode, voiceIdx: engine.voiceIdx, voiceState, max: stage.max,
-      vw: stage.w, vh: stage.h, sid: script ? script.id + ':' + script.updated : null,
+      voiceState,
       sync: syncTag,
     });
   }
@@ -511,16 +496,29 @@ export function mountPrompter(root, code) {
     refreshTouchLock();
     syncReadingUI();
     sendState();
-    if (!engine.moving) persist();
+    if (!settingsSave && (!engine.moving || performance.now() - lastSaved >= 10000)) persist();
   });
   // Paused views do not draw; sparse state updates let controllers recover.
-  const stateTimer = setInterval(() => { if (!engine.moving) sendState(true); }, 2000);
-  const saveTimer = setInterval(persist, 10000);
-  const onVisibility = () => { if (!platform.visible) persist(); reportReady(); };
-  document.addEventListener('visibilitychange', onVisibility);
+  let stateTimer = 0;
+  function updateStateTimer() {
+    if (platform.visible && room.hasPeer('controller')) {
+      if (!stateTimer) stateTimer = setInterval(() => { if (!engine.moving) sendState(true); }, 2000);
+    } else {
+      clearInterval(stateTimer); stateTimer = 0;
+    }
+  }
+  room.addEventListener('join', updateStateTimer);
+  room.addEventListener('leave', updateStateTimer);
+  const onVisibility = () => {
+    if (!platform.visible) persist();
+    updateStateTimer();
+    reportReady();
+  };
   platform.events.addEventListener('visible', onVisibility);
 
   function persist() {
+    clearTimeout(settingsSave); settingsSave = 0;
+    lastSaved = performance.now();
     store.setPrompterCache({ script, settings: baseSettings, speed: engine.speed, pos: engine.pos }, displayId);
   }
 
@@ -536,16 +534,16 @@ export function mountPrompter(root, code) {
       persist(); closeModals();
       clearTimeout(stateFlush);
       frames.destroy(); stage.destroy();
-      clearInterval(stateTimer); clearInterval(saveTimer);
+      clearInterval(stateTimer);
       clearTimeout(micTimer);
       clearTimeout(longPress);
-      document.removeEventListener('visibilitychange', onVisibility);
+
       platform.events.removeEventListener('visible', onVisibility);
       remotes.destroy();
       tracker.stop();
       release();
-      document.removeEventListener('fullscreenchange', fullscreenChanged);
-      document.removeEventListener('webkitfullscreenchange', fullscreenChanged);
+
+
       platform.events.removeEventListener('fullscreen', fullscreenChanged);
       lanHelp.destroy();
       room.destroy();

@@ -32,6 +32,10 @@ const cy = async page => page.locator('.preview-primary .scroller, .p-stage .scr
 try {
   const mc = await context(true), pc = await context();
   const controller = await mc.newPage(), phone = await pc.newPage();
+  const sent = [];
+  controller.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+    if (typeof payload === 'string') sent.push(JSON.parse(payload));
+  }));
   await controller.goto(base + '/#/c/TST42');
   await phone.goto(phoneBase + '/#/p/TST42');
   await controller.locator('.ctl.has-prompter').waitFor();
@@ -42,7 +46,18 @@ try {
   await controller.locator('button[data-view="edit"]').first().click();
   await controller.locator('.ed-text').fill(text);
   await controller.locator('button[data-view="live"]').first().click();
-  await waitFor(async () => (await phone.locator('.text').innerText()).includes('Спасибо'), 'text sync');
+  await waitFor(async () => (await phone.locator('.text').innerText()).includes('Спасибо до встречи в эфире'), 'text sync');
+  await controller.locator('button[data-view="edit"]').first().click();
+  const renamed = 'Сценарий после переименования';
+  const scriptPackets = () => sent.filter(packet => packet.t === 'script' || packet.t === 'scriptPart').length;
+  const beforeRename = scriptPackets();
+  await controller.locator('.ed-title').fill(renamed);
+  await waitFor(() => controller.evaluate(async title => {
+    const { store } = await import('./js/store.js');
+    return store.scripts().some(script => script.title === title);
+  }, renamed), 'renamed script is saved');
+  assert.equal(scriptPackets(), beforeRename, 'renaming a script does not resend its text');
+  await controller.locator('button[data-view="live"]').first().click();
   await phone.locator('.p-stage').tap();
   await phone.locator('.prompter.playing.ui-hidden').waitFor();
   await waitFor(async () => await controller.locator('.ctl.playing').count() > 0, 'reader tap starts the controller');
@@ -87,7 +102,8 @@ try {
     assert.equal(controller.url(), beforeLanguage.url);
     assert.ok(await phone.locator('.prompter.playing').count(), 'reading continues after language switch');
   }
-  if (!await phone.locator('.ui-language').isVisible()) await phone.locator('.p-stage').tap();
+  await phone.locator('.p-stage').tap();
+  await phone.locator('.prompter:not(.playing):not(.ui-hidden)').waitFor();
   await phone.locator('.ui-language').selectOption('ar');
   assert.equal(await phone.locator('.p-fullscreen').getAttribute('aria-label'), 'ملء الشاشة');
   assert.equal(await phone.evaluate(() => document.documentElement.dir), 'rtl');
@@ -96,6 +112,8 @@ try {
   await phone.locator('.ui-language').selectOption('ru');
   await waitFor(async () => (await controller.locator('.device-ready').innerText()).includes('Защита экрана активна'), 'phone readiness reaches controller after activation');
   // Touch lock blocks seeking during playback; unlocking restores it.
+  await phone.locator('.p-stage').tap();
+  await phone.locator('.prompter.playing').waitFor();
   const lockedPos = await cy(phone);
   await phone.locator('.p-stage').dispatchEvent('wheel', { deltaY: 500 });
   await new Promise(r => setTimeout(r, 100));
@@ -130,9 +148,14 @@ try {
   await new Promise(r => setTimeout(r, 800));
   await controller.locator('[data-a="voice"]').click();
   await waitFor(async () => controller.evaluate(() => window.nativeMessages.some(m => m.action === 'voiceStart')), 'native voice start');
-  await controller.evaluate(() => window.efirNative.onTranscript('Добрый день это проверка текста для суфлёра', false));
+  const hearingPackets = () => sent.filter(packet => packet.c === 'voiceState' && packet.state === 'hearing').length;
+  const beforeHearing = hearingPackets();
+  await controller.evaluate(() => {
+    for (let i = 0; i < 20; i++) window.efirNative.onTranscript('Добрый день это проверка текста для суфлёра', false);
+  });
   await waitFor(async () => await phone.locator('.stage').evaluate(el => el.classList.contains('voice-live')), 'native hearing reaches phone');
   await waitFor(async () => await phone.locator('.w.now').getAttribute('data-i') === '6', 'native word match reaches phone');
+  assert.equal(hearingPackets() - beforeHearing, 1, 'partial transcripts produce a single hearing transition');
   await controller.evaluate(() => window.efirNative.onTranscript('Сегодня мы читаем сценарий проверяем голос скорость положение экрана', true));
   await waitFor(async () => await phone.locator('.w.now').getAttribute('data-i') === '15', 'native voice advances');
   await controller.evaluate(() => window.efirNative.onTranscript('Добрый день это проверка текста для суфлёра', true));
@@ -248,11 +271,14 @@ try {
   await android.locator('.p-fullscreen:visible, .prompter:not(.ui-hidden) [data-a="fs"]').tap();
   await android.locator('.prompter.is-fullscreen').waitFor();
   // Start in the system language; retain a selected language after reload.
+  await controller.locator('button[data-view="live"]').first().click();
+  await controller.locator('[data-a="start"]').click();
+  await android.locator('.prompter:not(.playing)').waitFor();
   const sc = await context(false, 'es-MX'), spanish = await sc.newPage();
   await spanish.goto(phoneBase);
   await spanish.locator('.prompter').waitFor();
   assert.equal(await spanish.locator('.ui-language').inputValue(), 'es');
-  if (!await spanish.locator('.ui-language').isVisible()) await spanish.locator('.p-stage').tap();
+  await spanish.locator('.prompter.has-script.has-ctl:not(.ui-hidden)').waitFor();
   await spanish.locator('.ui-language').selectOption('en');
   await spanish.reload();
   await spanish.locator('.prompter').waitFor();

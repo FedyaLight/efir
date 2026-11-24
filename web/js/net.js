@@ -6,7 +6,7 @@
 // another peer takes over. BroadcastChannel also connects same-browser tabs.
 
 import { store } from './store.js';
-import { localMode, nativeVoice } from './environment.js';
+import { localMode } from './environment.js';
 import { rtcConfig, peerServer, signalingEndpoint, relayConfigured, rtcConfigError } from './rtc.js';
 
 let peerLibrary;
@@ -31,6 +31,7 @@ export class Room extends EventTarget {
     this.getHello = getHello;           // Greeting callback: role and viewport.
     this.id = store.clientId() + '-' + role[0] + Math.random().toString(36).slice(2, 6);
     this.seq = 0;
+    this.departed = new Map();
     this.lastSeq = new Map();           // from -> seq; deduplicate across transports.
     this.conns = new Map();             // peerId -> { conn, rtt, lan, last }
     this.members = new Map();           // clientId -> { role, hello, last, via }
@@ -53,13 +54,18 @@ export class Room extends EventTarget {
 
   // Public API
   send(type, data = {}) {
-    const msg = { ...data, nativeVoice, t: type, from: this.id, role: this.role, seq: ++this.seq };
+    const msg = { ...data, t: type, from: this.id, role: this.role, seq: ++this.seq };
     this._fanout(msg, null);
     if (this.bc) { try { this.bc.postMessage(msg); } catch { /* */ } }
   }
 
   peersOf(role) {
-    return [...this.members.entries()].filter(([, m]) => m.role === role).map(([id, m]) => ({ id, ...m }));
+    return Array.from(this.members.values()).filter(m => m.role === role);
+  }
+
+  hasPeer(role, except) {
+    for (const member of this.members.values()) if (member.role === role && member.id !== except) return true;
+    return false;
   }
 
   linkInfo() {
@@ -103,6 +109,7 @@ export class Room extends EventTarget {
     clearInterval(this._hb);
     clearTimeout(this._retry);
     clearTimeout(this._connTimeout);
+    clearTimeout(this._broadcastHello);
     this._closeSocket();
     try { this.bc && this.bc.close(); } catch { /* */ }
     for (const c of this.conns.values()) { try { c.conn.close(); } catch { /* */ } }
@@ -115,7 +122,7 @@ export class Room extends EventTarget {
     this.bc = new BroadcastChannel(PREFIX + this.code);
     this.bc.onmessage = (e) => this._receive(e.data, null, 'local');
     // Introduce this peer to neighboring tabs.
-    setTimeout(() => this.send('hello', this.getHello()), 50);
+    this._broadcastHello = setTimeout(() => this.send('hello', this.getHello()), 50);
   }
 
   // Local WebSocket
@@ -141,7 +148,7 @@ export class Room extends EventTarget {
       this._wsRtt = null;
       // Reintroduce after reconnecting; roles restore scripts and settings.
       for (const [id, m] of this.members) { this.members.delete(id); this.dispatchEvent(new CustomEvent('leave', { detail: { id, role: m.role } })); }
-      this.members.clear(); this.lastSeq.clear();
+      this.members.clear(); this.lastSeq.clear(); this.departed.clear();
       this._setStatus('waiting');
       this.send('hello', this.getHello());
       this._socketPing();
@@ -382,7 +389,10 @@ export class Room extends EventTarget {
   }
 
   _emitLink() {
-    this.dispatchEvent(new CustomEvent('link', { detail: this.linkInfo() }));
+    const info = this.linkInfo();
+    if (info?.route === this._lastLink?.route && info?.rtt === this._lastLink?.rtt) return;
+    this._lastLink = info;
+    this.dispatchEvent(new CustomEvent('link', { detail: info }));
   }
 
   _direct(conn, msg) {
@@ -409,7 +419,14 @@ export class Room extends EventTarget {
     // Relay from the host to other peers.
     if (this.isHost && transport === 'p2p') this._fanout(msg, viaPeer);
 
+    if (msg.t === 'helloRequest' || (msg.t === 'hello' && msg.to && msg.to !== this.id)) {
+      if (msg.t === 'helloRequest' && msg.to === this.id) this.send('hello', { ...this.getHello(), to: msg.from });
+      if (!this.members.has(msg.from) && !this.departed.has(msg.from)) this.lastSeq.delete(msg.from);
+      return;
+    }
+
     if (msg.t === 'bye') {
+      this.departed.set(msg.from, Date.now());
       const m = this.members.get(msg.from);
       this.members.delete(msg.from);
       if (m) this.dispatchEvent(new CustomEvent('leave', { detail: { id: msg.from, role: m.role } }));
@@ -417,21 +434,31 @@ export class Room extends EventTarget {
     }
 
     const known = this.members.get(msg.from);
-    const m = known || { role: msg.role, hello: null, last: 0 };
+    // The first reader greeting supplies its saved session. A lightweight
+    // heartbeat or an early readiness packet cannot substitute for it.
+    if (!known && this.role === 'controller' && msg.role === 'prompter' && msg.t !== 'hello' && !msg.session) {
+      if (!this.departed.has(msg.from)) this.lastSeq.delete(msg.from);
+      if (msg.t === 'presence') this.send('helloRequest', { to: msg.from });
+      return;
+    }
+    this.departed.delete(msg.from);
+    const answer = msg.t === 'hello' && !known?.greeted;
+    const m = known || { id: msg.from, role: msg.role, hello: null, last: 0 };
     m.last = Date.now();
     m.role = msg.role;
     if (transport === 'local') m.local = Date.now();
+    if (msg.t === 'hello') m.greeted = true;
     if (msg.t === 'hello' || msg.t === 'presence') m.hello = { ...m.hello, ...msg };
     this.members.set(msg.from, m);
     if (!known) this.dispatchEvent(new CustomEvent('join', { detail: { id: msg.from, role: msg.role } }));
     if (msg.t === 'hello' && known) this.dispatchEvent(new CustomEvent('join', { detail: { id: msg.from, role: msg.role, again: true } }));
 
     this.dispatchEvent(new CustomEvent('message', { detail: msg }));
-    if (transport === 'ws' && msg.t === 'hello' && !known) this.send('hello', this.getHello());
+    if (answer && !msg.to) this.send('hello', { ...this.getHello(), to: msg.from });
   }
 
   _heartbeat() {
-    this.send('presence', this.getHello());
+    this.send('presence', this.getHello(false));
     const now = Date.now();
     if (localMode) {
       if (this.ws?.readyState === WebSocket.OPEN && now - this._wsLast > STALE) this.ws.close();
@@ -454,6 +481,7 @@ export class Room extends EventTarget {
         this.dispatchEvent(new CustomEvent('leave', { detail: { id, role: m.role } }));
       }
     }
+    for (const [id, left] of this.departed) if (now - left > STALE) { this.departed.delete(id); this.lastSeq.delete(id); }
     if (localMode) {
       if (this.ws?.readyState === WebSocket.OPEN) this._setStatus(this.members.size ? 'connected' : 'waiting');
       return;

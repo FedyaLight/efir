@@ -66,6 +66,7 @@ const K = {
   speed: 'efir.speed.v1',
   cached: 'efir.prompter.cache.v1',
   position: 'efir.prompter.position.v1',
+  positions: 'efir.prompter.positions.v1',
   prompterSettings: 'efir.prompter.settings.v1',
   id: 'efir.client.v1',
   profiles: 'efir.profiles.v1',
@@ -148,7 +149,10 @@ export const store = {
   setRoom(r) { write(K.room, r); },
 
   prompterCache(displayId) {
-    const c = read(K.cached, null), p = read(displayId ? K.position + '.' + displayId : K.position, read(K.position, null));
+    const c = read(K.cached, null);
+    const legacy = read(K.position, null);
+    const positions = read(K.positions, {}) || {};
+    const p = displayId ? (Object.hasOwn(positions, displayId) ? positions[displayId] : read(K.position + '.' + displayId, legacy)) : legacy;
     const sid = c?.script ? c.script.id + ':' + c.script.updated : null;
     if (!c) return null;
     const settings = read(K.prompterSettings, c.settings);
@@ -162,7 +166,15 @@ export const store = {
     const positionKey = displayId ? K.position + '.' + displayId : K.position;
     const p = { key: positionKey, sid: c.script ? c.script.id + ':' + c.script.updated : null, pos: Math.round(c.pos * 100) / 100, speed: c.speed };
     if (!savedPosition || p.key !== savedPosition.key || p.sid !== savedPosition.sid || p.pos !== savedPosition.pos || p.speed !== savedPosition.speed) {
-      write(positionKey, p); savedPosition = p;
+      if (displayId) {
+        const positions = read(K.positions, {}) || {};
+        delete positions[displayId];
+        positions[displayId] = { sid: p.sid, pos: p.pos, speed: p.speed };
+        if (write(K.positions, Object.fromEntries(Object.entries(positions).slice(-64)))) {
+          try { localStorage.removeItem(positionKey); } catch { /* Storage may be unavailable. */ }
+          savedPosition = p;
+        }
+      } else if (write(positionKey, p)) savedPosition = p;
     }
   },
 

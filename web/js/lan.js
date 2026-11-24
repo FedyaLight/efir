@@ -190,11 +190,12 @@ export function mountLanHelp(host, room, isConnected, { eager = true, always = f
       if (await micPermission() === 'granted' && await unlockLan()) { unlockedNow = true; room.restart(); update(); }
     }
   }
-  const timer = setInterval(update, 1500);
+  const timer = eager ? setTimeout(update, 9100) : 0;
   const onStatus = () => update();
-  room.addEventListener('status', onStatus);
-  document.addEventListener('visibilitychange', onStatus); platform.events.addEventListener('visible', onStatus);
+  const roomEvents = ['status', 'join', 'leave', 'link'];
+  roomEvents.forEach(event => room.addEventListener(event, onStatus));
+  platform.events.addEventListener('visible', onStatus);
   update();
   const releaseLanguage = onLanguageChange(update);
-  return { update, destroy() { disposed = true; probeAbort?.abort(); releaseTranslation(); releaseLanguage(); clearInterval(timer); room.removeEventListener('status', onStatus); document.removeEventListener('visibilitychange', onStatus); platform.events.removeEventListener('visible', onStatus); box.remove(); } };
+  return { update, destroy() { disposed = true; probeAbort?.abort(); releaseTranslation(); releaseLanguage(); clearTimeout(timer); roomEvents.forEach(event => room.removeEventListener(event, onStatus)); platform.events.removeEventListener('visible', onStatus); box.remove(); } };
 }

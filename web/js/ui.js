@@ -62,8 +62,13 @@ export function toast(msg, kind = '') {
   setTimeout(() => { node.classList.remove('in'); setTimeout(() => node.remove(), 400); }, 2600);
 }
 
-export function qrSvg(text) {
-  if (typeof window.qrcode !== 'function') return '';
+let qrLibrary;
+export async function qrSvg(text) {
+  if (typeof window.qrcode !== 'function') {
+    qrLibrary ||= loadScript('vendor/qrcode.min.js').catch(() => { qrLibrary = null; });
+    await qrLibrary;
+    if (typeof window.qrcode !== 'function') return '';
+  }
   const q = window.qrcode(0, 'M');
   q.addData(text);
   q.make();
@@ -197,21 +202,20 @@ export function keepAwake(onChange = () => {}) {
   const onPause = () => { if (visible() && !held()) schedule(); };
   const events = ['pointerup', 'touchend', 'click', 'keydown'];
   events.forEach(type => document.addEventListener(type, touch, true));
-  document.addEventListener('visibilitychange', onVis);
+
   platform.events.addEventListener('visible', onVis);
-  document.addEventListener('fullscreenchange', schedule);
-  document.addEventListener('webkitfullscreenchange', schedule);
+  platform.events.addEventListener('fullscreen', schedule);
+
   window.addEventListener('online', req);
   const onHostAwake = e => { hostAwake = e.detail && visible(); report(hostAwake); };
   platform.events.addEventListener('awake', onHostAwake);
   req();
   return () => {
     platform.events.removeEventListener('visible', onVis);
+    platform.events.removeEventListener('fullscreen', schedule);
     dead = true; clearTimeout(retry);
     events.forEach(type => document.removeEventListener(type, touch, true));
-    document.removeEventListener('visibilitychange', onVis);
-    document.removeEventListener('fullscreenchange', schedule);
-    document.removeEventListener('webkitfullscreenchange', schedule);
+
     window.removeEventListener('online', req);
     platform.events.removeEventListener('awake', onHostAwake);
     if (platform.has('screenAwake')) platform.send('screenAwake', { active: false });
@@ -236,4 +240,8 @@ export async function copyText(text, successMessage = 'Ссылка скопир
   try { ok = document.execCommand('copy'); } catch { /* */ }
   el.remove(); active?.focus();
   toast(ok ? t(successMessage) : text);
+}
+
+export function escapeHtml(value) {
+  return String(value).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }

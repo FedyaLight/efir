@@ -1,24 +1,22 @@
 import { t, translateUI, onLanguageChange, languagePicker, countLabel } from './i18n.js';
-import { cleanDisplayProfile, displaySettings } from './display-profile.js';
+import { cleanDisplayProfile, displaySettings, LAYOUT_KEYS } from './display-profile.js';
 import { DisplayViews, screenId, profileDialog, showFormatRegion } from './display-views.js';
 import { mountRemotes } from './remotes.js';
 import { FrameLoop } from './frames.js';
 import { localMode, nativeVoice, hostName } from './environment.js';
 import { platform } from './platform.js';
-import { captureSession, restoreSession, sessionPosition } from './session.js';
+import { captureSession, restoreSession, sessionPosition, clampSpeed } from './session.js';
 
 // Controller: library, editor, preview and settings. Its engine follows
 // the reading screen, preserving matching layout and smooth scrolling.
 
 import { store, DEFAULTS, THEMES, FONTS, newScript, wordCount, uid } from './store.js';
-import { Stage, Engine, fmt } from './stage.js';
+import { Stage, Engine, fmt, relayout } from './stage.js';
 import { Room } from './net.js';
 import { VoiceTracker, voiceSupported } from './voice.js';
-import { relayout } from './prompter.js';
 import { mountLanHelp } from './lan.js';
-import { icon, toast, qrSvg, modal, closeModals, loadScript, roomUrl, copyText } from './ui.js';
+import { icon, toast, qrSvg, modal, closeModals, loadScript, roomUrl, copyText, escapeHtml } from './ui.js';
 
-const LAYOUT_KEYS = ['fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'uppercase', 'sidePad', 'leftPad', 'rightPad', 'topPad', 'bottomPad', 'markerPos', 'align'];
 
 const FORMATS = [
   { id: '1600x1000', label: '16:10 · монитор', w: 1600, h: 1000 },
@@ -120,7 +118,7 @@ export function mountController(root, code) {
   let lastTranscript = '';
   let lastNativeActive = null;
   const latest = new Map(), seen = new Map(), profiles = store.displayProfiles();
-  let primaryStale = false;
+  let primaryStale = false, freshnessTimer = 0;
   let views, commandTag = '', lastFollow = 0;
   let allScreens = localStorage.getItem('efir.allScreens') !== 'false';
   let compareFormats = localStorage.getItem('efir.compareFormats') !== 'false';
@@ -277,21 +275,24 @@ export function mountController(root, code) {
   let frames;
   engine.speed = store.speed();
 
-  const box = $('.preview-box'), frame = $('.preview-frame');
+  const box = $('.preview-box'), frame = $('.preview-frame'), primaryPreview = $('.preview-primary');
   let scale = 1;
   function fitPreview() {
     const [vw, vh] = viewport();
     const ps = room.peersOf('prompter');
     const selected = ps.find(p => p.id === primary);
     const effective = displaySettings(settings, selected && profileFor(selected));
-    if (JSON.stringify(stage.s) !== JSON.stringify(effective)) relayout(stage, engine, () => stage.setSettings(effective));
-    stage.setViewport(vw, vh);
+    const apply = () => { stage.setSettings(effective); stage.setViewport(vw, vh); };
+    if (stage.w !== vw || stage.h !== vh || LAYOUT_KEYS.some(k => stage.s[k] !== effective[k])) {
+      relayout(stage, engine, apply);
+      renderTicks();
+    } else apply();
     views?.sync(ps, primary, settings, cur.text, showMirror);
     const count = allScreens ? 1 + (views?.records.size || 0) : 1;
     const multi = allScreens && count > 1;
     box.classList.toggle('multi', multi);
     $('.screen-cards').hidden = !multi;
-    views?.setActive(multi && el.dataset.view === 'live');
+    views?.setActive(multi && platform.visible && el.dataset.view === 'live');
     const cols = multi && box.clientWidth >= 380 ? 2 : 1;
     box.style.setProperty('--preview-cols', cols);
     const bw = (box.clientWidth - (cols - 1) * 12) / cols - 12;
@@ -304,9 +305,11 @@ export function mountController(root, code) {
     $('.preview-primary .screen-canvas').style.height = multi ? Math.max(1, cellHeight - 70) + 'px' : vh * scale + 'px';
     scaleHost.style.transform = `scale(${scale})`;
     const p = primaryInfo();
-    $('.pm-dev').innerHTML = p
+    const device = $('.pm-dev');
+    const deviceHtml = p
       ? `<b>${escapeHtml(selected ? profileFor(selected).name || p.name || t('Суфлёр') : p.name || t('Суфлёр'))}</b><span>${vw}×${vh}</span>`
       : `<b>${t('Нет суфлёра')}</b><span>${vw}×${vh}</span>`;
+    if (device.dataset.content !== deviceHtml) { device.dataset.content = deviceHtml; device.innerHTML = deviceHtml; }
     el.classList.toggle('has-prompter', !!p);
     const others = views?.stages().filter(s => s !== views.records.get(screenId(selected))?.stage) || [];
     showFormatRegion(frame.querySelector('.format-region'), stage, others, scale, compareFormats, showMirror);
@@ -324,9 +327,14 @@ export function mountController(root, code) {
   }
   function refreshPrimaryPreview() {
     const stale = !!primary && seen.has(primary) && performance.now() - seen.get(primary) > 3500;
-    if (stale !== primaryStale) { primaryStale = stale; renderReady(); }
-    $('.preview-primary').classList.toggle('stale', stale);
-    frames?.setActive(el.dataset.view === 'live' && !stale);
+    if (stale !== primaryStale) { primaryStale = stale; primaryPreview.classList.toggle('stale', stale); renderReady(); }
+    const visible = el.dataset.view === 'live' && platform.visible;
+    frames?.setActive(visible && !stale);
+    if (visible && primary && !freshnessTimer) {
+      freshnessTimer = setInterval(() => { refreshPrimaryPreview(); views.checkStale(); }, 1000);
+    } else if ((!visible || !primary) && freshnessTimer) {
+      clearInterval(freshnessTimer); freshnessTimer = 0;
+    }
   }
   const previewObserver = new ResizeObserver(fitPreview);
   previewObserver.observe(box);
@@ -345,7 +353,7 @@ export function mountController(root, code) {
   }
 
   $('.pm-fmt').value = fmtId;
-  $('.pm-fmt').onchange = (e) => { fmtId = e.target.value; localStorage.setItem('efir.fmt', fmtId); relayout(stage, engine, fitPreview); };
+  $('.pm-fmt').onchange = (e) => { fmtId = e.target.value; localStorage.setItem('efir.fmt', fmtId); fitPreview(); };
   $('.pm-mirror').onchange = (e) => { showMirror = e.target.checked; stage.setShowMirror(showMirror); fitPreview(); };
   $('.pm-all').checked = allScreens;
   $('.pm-compare').checked = compareFormats;
@@ -354,9 +362,9 @@ export function mountController(root, code) {
   $('.pm-screen').onchange = e => {
     cancelResync();
     primary = e.target.value; remote = latest.get(primary) || null;
-    const peer = room.peersOf('prompter').find(p => p.id === primary);
+    const peer = room.members.get(primary);
     preferredScreen = screenId(peer); localStorage.setItem('efir.leadingScreen', preferredScreen);
-    relayout(stage, engine, fitPreview);
+    fitPreview();
     if (remote) restoreSession(stage, engine, remote);
     configureFollowers(); renderReady(); frames?.request();
   };
@@ -366,13 +374,16 @@ export function mountController(root, code) {
 
   views = new DisplayViews($('.screen-cards'), { configure: configureDisplay, profile: profileFor,
     ready: p => readyText(readiness.get(p.id) || p.hello?.ready) });
-  function profileFor(peer) { return cleanDisplayProfile(profiles[screenId(peer)] || peer?.hello?.profile); }
+  function profileFor(peer) {
+    const id = screenId(peer);
+    return Object.hasOwn(profiles, id) ? profiles[id] : cleanDisplayProfile(peer?.hello?.profile);
+  }
   function updateDisplay(peer, profile) {
     if (!peer) return;
     cancelResync();
     const id = screenId(peer); profiles[id] = cleanDisplayProfile(profile); store.saveDisplayProfile(id, profiles[id]);
     room.send('display', { to: peer.id, profile: profiles[id] });
-    relayout(stage, engine, fitPreview); renderStatus(); frames?.request();
+    fitPreview(); renderStatus(); frames?.request();
   }
   function configureDisplay(peer) { if (peer) profileDialog(profileFor(peer), settings, profile => updateDisplay(peer, profile)); }
   function configureFollowers() { room.send('follow', { leader: primary }); }
@@ -380,11 +391,13 @@ export function mountController(root, code) {
     const ps = room.peersOf('prompter');
     const visible = ps.filter(p => (readiness.get(p.id) || p.hello?.ready)?.visible !== false);
     const available = visible.length ? visible : ps;
-    if (primary && available.some(p => p.id === primary)) return;
+    if (primary && available.some(p => p.id === primary)) return false;
     const prev = primary;
     primary = (available.find(p => screenId(p) === preferredScreen) || available[0])?.id || null;
     remote = latest.get(primary) || null;
-    if (prev !== primary) { cancelResync(); relayout(stage, engine, fitPreview); if (remote) restoreSession(stage, engine, remote); configureFollowers(); frames?.request(); }
+    if (prev === primary) return false;
+    cancelResync(); fitPreview(); if (remote) restoreSession(stage, engine, remote); configureFollowers(); frames?.request();
+    return true;
   }
 
   function renderStatus() {
@@ -410,20 +423,19 @@ export function mountController(root, code) {
     if (platform.has('sessionAwake') && active !== lastNativeActive) { lastNativeActive = active; platform.send('sessionActive', { active }); }
   }
 
-  const hasPrompter = () => room.peersOf('prompter').length > 0;
+  const hasPrompter = () => room.hasPeer('prompter');
   const lanHelp = mountLanHelp($('.lan-slot'), room, hasPrompter, { eager: false });
   room.addEventListener('status', renderStatus);
   room.addEventListener('link', renderStatus);
   room.addEventListener('join', (e) => {
     if (e.detail.role === 'prompter') {
-      const peer = room.peersOf('prompter').find(p => p.id === e.detail.id);
+      const peer = room.members.get(e.detail.id);
       const offered = peer?.hello?.session;
       const id = screenId(peer);
-      if (id && !profiles[id]) { profiles[id] = cleanDisplayProfile(peer?.hello?.profile); store.saveDisplayProfile(id, profiles[id]); }
-      const sid = cur.id + ':' + cur.updated;
+      if (id && !Object.hasOwn(profiles, id)) { profiles[id] = cleanDisplayProfile(peer?.hello?.profile); store.saveDisplayProfile(id, profiles[id]); }
+      const sid = scriptId();
       const initial = !sessionEstablished && offered?.sid === sid ? offered : captureSession(stage, engine, sid);
-      pickPrimary();
-      fitPreview();
+      if (!pickPrimary()) fitPreview();
       if (!sessionEstablished && offered?.sid === sid) {
         restoreSession(stage, engine, offered);
         tracker.setPosition(engine.voiceIdx);
@@ -437,7 +449,6 @@ export function mountController(root, code) {
       room.send('session', { to: e.detail.id, tag, state: { ...initial, voiceState: localVoiceState } });
       configureFollowers();
       if (!e.detail.again) toast(t('Суфлёр подключён'), 'ok');
-      fitPreview();
     }
     renderStatus();
   });
@@ -445,9 +456,10 @@ export function mountController(root, code) {
     if (e.detail.role === 'prompter') {
       pendingSync.delete(e.detail.id); readiness.delete(e.detail.id); latest.delete(e.detail.id); seen.delete(e.detail.id);
       finishResync();
-      if (e.detail.id === primary) { primary = null; pickPrimary(); fitPreview(); toast(t('Суфлёр отключился')); }
+      if (e.detail.id === primary) toast(t('Суфлёр отключился'));
+      if (!pickPrimary()) fitPreview();
     }
-    fitPreview(); renderStatus();
+    renderStatus();
   });
 
   let lastScriptPush = 0;
@@ -455,7 +467,7 @@ export function mountController(root, code) {
     const m = e.detail;
     if (m.role !== 'prompter') return;
     if (m.t === 'resynced') {
-      if (!resync || resync.leader !== primary || m.from !== primary || m.request !== resync.tag || m.state?.sid !== cur.id + ':' + cur.updated) return;
+      if (!resync || resync.leader !== primary || m.from !== primary || m.request !== resync.tag || m.state?.sid !== scriptId()) return;
       stage.invalidate(); fitPreview();
       remote = { ...m.state, from: m.from };
       restoreSession(stage, engine, remote);
@@ -473,18 +485,18 @@ export function mountController(root, code) {
       return;
     }
     if (m.t === 'control') {
-      if (m.c === 'seek' && m.state?.sid === cur.id + ':' + cur.updated) seekRemote(sessionPosition(stage, m.state), !!m.smooth);
+      if (m.c === 'seek' && m.state?.sid === scriptId()) seekRemote(sessionPosition(stage, m.state), !!m.smooth);
       else if (m.c === 'nudge' && Number.isFinite(m.lines)) cmd('nudge', { v: m.lines * stage.s.fontSize * stage.s.lineHeight });
       else if (['play', 'pause', 'start', 'section', 'speed'].includes(m.c)) cmd(m.c, m);
       return;
     }
-    if (m.t === 'mirror' && typeof m.value === 'boolean') { const peer = room.peersOf('prompter').find(p => p.id === m.from); const profile = profileFor(peer); updateDisplay(peer, { ...profile, overrides: { ...profile.overrides, mirrorH: m.value } }); return; }
-    if (m.t === 'displayChange') { updateDisplay(room.peersOf('prompter').find(p => p.id === m.from), m.profile); return; }
-    if (m.t === 'readiness') { readiness.set(m.from, m.ready); pickPrimary(); fitPreview(); renderReady(); if (connectModal) renderConnectDevices(); return; }
+    if (m.t === 'mirror' && typeof m.value === 'boolean') { const peer = room.members.get(m.from); const profile = profileFor(peer); updateDisplay(peer, { ...profile, overrides: { ...profile.overrides, mirrorH: m.value } }); return; }
+    if (m.t === 'displayChange') { updateDisplay(room.members.get(m.from), m.profile); return; }
+    if (m.t === 'readiness') { readiness.set(m.from, m.ready); if (!pickPrimary()) views.updateLabel(screenId(room.members.get(m.from))); renderReady(); if (connectModal) renderConnectDevices(); return; }
     if (m.t === 'transcript' && m.from === primary && settings.voiceDevice === 'prompter') { showTranscript(m.text); return; }
     if ((m.t === 'hello' || m.t === 'presence') && m.from === primary) {
       const [vw, vh] = [stage.w, stage.h];
-      if (m.vw && m.vh && (m.vw !== vw || m.vh !== vh)) relayout(stage, engine, fitPreview);
+      if (m.vw && m.vh && (m.vw !== vw || m.vh !== vh)) fitPreview();
     }
     if (m.t !== 'state') return;
     if (pendingSync.has(m.from)) {
@@ -492,23 +504,29 @@ export function mountController(root, code) {
       pendingSync.delete(m.from);
       finishResync();
     }
-    const peer = room.peersOf('prompter').find(p => p.id === m.from);
+    const peer = room.members.get(m.from);
     if (!peer) return;
-    if (m.sid === cur.id + ':' + cur.updated) {
-      const prior = latest.get(m.from); latest.set(m.from, m); seen.set(m.from, performance.now()); views.state(peer, m);
-      if (!prior || prior.vw !== m.vw || prior.vh !== m.vh) fitPreview();
-    } else if (performance.now() - lastScriptPush > 2500) { sendScript(m.from); }
+    if (m.sid !== scriptId()) {
+      if (!edTimer && performance.now() - lastScriptPush > 2500) sendScript(m.from);
+      return;
+    }
+    const prior = latest.get(m.from);
+    latest.set(m.from, m); seen.set(m.from, performance.now()); views.state(peer, m);
     if (!primary) pickPrimary();
-    if (m.from !== primary) return;
-    if (m.sid !== cur.id + ':' + cur.updated) { if (performance.now() - lastScriptPush > 2500) sendScript(m.from); return; }
+    if (m.from !== primary) {
+      if ((allScreens || compareFormats) && (!prior || prior.vw !== m.vw || prior.vh !== m.vh)) fitPreview();
+      return;
+    }
     const sizeChanged = !remote || remote.vw !== m.vw || remote.vh !== m.vh;
     remote = m;
-    refreshPrimaryPreview();
+    if (primaryStale) refreshPrimaryPreview();
     const now = performance.now();
-    if (m.sid === cur.id + ':' + cur.updated && (!commandTag || m.command === commandTag || now > Math.max(holdUntil, seekHold)) && now - lastFollow >= 45) {
-      lastFollow = now; room.send('followState', { leader: primary, state: m });
+    if ((!commandTag || m.command === commandTag || now > Math.max(holdUntil, seekHold)) && now - lastFollow >= 45
+        && room.hasPeer('prompter', primary)) {
+      const { t, from, role, seq, nativeVoice, ...state } = m;
+      lastFollow = now; room.send('followState', { leader: primary, state });
     }
-    if (sizeChanged) relayout(stage, engine, fitPreview);
+    if (sizeChanged) fitPreview();
 
     if (now > holdUntil) {
       engine.playing = m.playing;
@@ -532,10 +550,9 @@ export function mountController(root, code) {
       if (engine.target != null && Math.abs(engine.target - target) < 2) engine.target = null;
     }
     frames?.request();
-    // Resend the current script if a reader reports a stale version.
-    const sid = cur.id + ':' + cur.updated;
-    if (m.sid !== sid && now - lastScriptPush > 2500) { lastScriptPush = now; sendScript(); }
   });
+
+  function scriptId() { return cur.id + ':' + cur.updated; }
 
   function sendScript(to) {
     lastScriptPush = performance.now();
@@ -597,7 +614,6 @@ export function mountController(root, code) {
     frames?.request();
     updateTransport(true);
   }
-  const clampSpeed = (v) => Math.round(Math.max(0.1, Math.min(20, v)) * 10) / 10;
 
   function seekLocal(p, smooth) {
     seekHold = performance.now() + (smooth ? 700 : 400);
@@ -608,8 +624,8 @@ export function mountController(root, code) {
     }
     frames?.request();
   }
-  function positionState(pos) { return captureSession(stage, { pos, snapshot: () => ({ ...engine.snapshot(), pos }) }, cur.id + ':' + cur.updated); }
-  let seekSendT = 0, seekPending = null;
+  function positionState(pos) { return captureSession(stage, { pos, snapshot: () => ({ ...engine.snapshot(), pos }) }, scriptId()); }
+  let seekSendT = 0, seekPending = null, seekTimer = 0;
   function seekRemote(p, smooth = false) {
     cancelResync();
     sessionEstablished = true;
@@ -618,9 +634,10 @@ export function mountController(root, code) {
     seekPending = { c: 'seek', pos: cp, word: stage.wordAt(cp), vw: stage.w, vh: stage.h, state: positionState(cp), smooth };
     const now = performance.now();
     if (now - seekSendT > 30) flushSeek();
-    else setTimeout(flushSeek, 30);
+    else if (!seekTimer) seekTimer = setTimeout(flushSeek, 30 - (now - seekSendT));
   }
   function flushSeek() {
+    clearTimeout(seekTimer); seekTimer = 0;
     if (!seekPending) return;
     seekSendT = performance.now();
     commandTag = uid(); room.send('cmd', { ...seekPending, tag: commandTag });
@@ -691,7 +708,7 @@ export function mountController(root, code) {
     else if (a === 'connect') { if (!platform.has('standalone')) openConnect(); }
     else if (a === 'read') platform.send('showPrompter');
     else if (a === 'mirror') set('mirrorH', !settings.mirrorH);
-    else if (a === 'display') configureDisplay(room.peersOf('prompter').find(p => p.id === primary));
+    else if (a === 'display') configureDisplay(room.members.get(primary));
     else if (a === 'sync') synchronize();
     else if (a === 'window') openWindow();
     else if (a === 'keys') openKeys();
@@ -751,7 +768,8 @@ export function mountController(root, code) {
   };
   track.addEventListener('pointerdown', (e) => { scrubbing = true; track.setPointerCapture(e.pointerId); scrubTo(e); });
   track.addEventListener('pointermove', (e) => { if (scrubbing) scrubTo(e); });
-  track.addEventListener('pointerup', () => { scrubbing = false; flushSeek(); });
+  const endScrub = () => { scrubbing = false; flushSeek(); };
+  for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) track.addEventListener(event, endScrub);
 
   const remotes = mountRemotes({
     toggle: () => cmd('toggle'), start: () => cmd('start'),
@@ -778,10 +796,19 @@ export function mountController(root, code) {
   setView('live');
 
   // Library
+  const counts = new WeakMap();
+  function scriptWordCount(script) {
+    const cached = counts.get(script);
+    if (cached?.text === script.text) return cached.count;
+    const count = wordCount(script.text);
+    counts.set(script, { text: script.text, count });
+    return count;
+  }
   function renderLib() {
     const list = $('.lib-list');
-    list.innerHTML = scripts.slice().sort((a, b) => b.updated - a.updated).map(s => {
-      const wc = wordCount(s.text);
+    const modified = s => Math.max(s.updated, s.titleUpdated || 0);
+    list.innerHTML = scripts.slice().sort((a, b) => modified(b) - modified(a)).map(s => {
+      const wc = scriptWordCount(s);
       return `<div class="lib-item ${s.id === cur.id ? 'on' : ''}" data-id="${s.id}" tabindex="0">
         <div class="li-main"><b>${escapeHtml(s.title || t('Без названия'))}</b>
         <span>${countLabel(wc, 'words')} · ≈ ${fmt(wc / 130 * 60)}</span></div>
@@ -813,6 +840,7 @@ export function mountController(root, code) {
 
   function selectScript(s) {
     sessionEstablished = true;
+    clearTimeout(edTimer); edTimer = 0;
     cur = s;
     store.setCurrentId(s.id);
     engine.pause();
@@ -885,7 +913,9 @@ export function mountController(root, code) {
         const data = JSON.parse(await file.text());
         if (!el.isConnected) return;
         if (!confirm(t('Восстановить тексты и настройки из копии? Текущие тексты останутся в библиотеке.'))) return;
-        clearTimeout(edTimer); clearTimeout(saveTimer); store.saveScripts(scripts);
+        clearTimeout(edTimer); edTimer = 0;
+        clearTimeout(saveTimer); saveTimer = 0;
+        store.saveScripts(scripts);
         store.restoreBackup(data);
         if (engine.mode === 'voice') voiceToggle();
         scripts = store.scripts(); settings = store.settings(); engine.speed = store.speed();
@@ -951,30 +981,42 @@ export function mountController(root, code) {
     renderStats();
   }
   function renderStats() {
-    const wc = wordCount(cur.text);
+    const wc = scriptWordCount(cur);
     const dur = stage.max / stage.pxPerSec(engine.speed);
     $('.ed-stats').textContent = t('{words} · {characters} · ≈ {spoken} вслух · {duration} на скорости {speed}', { words: countLabel(wc, 'words'), characters: countLabel(cur.text.length, 'characters'), spoken: fmt(wc / 130 * 60), duration: fmt(dur), speed: engine.speed.toFixed(1) });
   }
   let edTimer = 0, saveTimer = 0;
-  const saveBeforeHide = () => {
-    if (!platform.visible) { clearTimeout(saveTimer); store.saveScripts(scripts); }
+  const onVisibility = () => {
+    if (platform.visible && el.dataset.view === 'live') fitPreview();
+    else {
+      views.setActive(false); refreshPrimaryPreview();
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; store.saveScripts(scripts); }
+      if (saveSetTimer) flushSettings();
+    }
   };
-  document.addEventListener('visibilitychange', saveBeforeHide);
-  platform.events.addEventListener('visible', saveBeforeHide);
+  platform.events.addEventListener('visible', onVisibility);
   function onEdit() {
-    cur.updated = Date.now();
+    cur.updated = Math.max(Date.now(), cur.updated + 1);
     clearTimeout(edTimer);
     edTimer = setTimeout(() => {
+      edTimer = 0;
       relayout(stage, engine, () => stage.setScript(cur.text));
       tracker.setWords(stage.words);
       renderSections(); renderStats(); fitPreview();
       sendScript();
     }, 250);
+    scheduleScriptSave();
+  }
+  function scheduleScriptSave() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => { store.saveScripts(scripts); renderLib(); }, 500);
+    saveTimer = setTimeout(() => { saveTimer = 0; store.saveScripts(scripts); renderLib(); }, 500);
   }
   edText.addEventListener('input', () => { cur.text = edText.value; onEdit(); });
-  edTitle.addEventListener('input', () => { cur.title = edTitle.value; onEdit(); });
+  edTitle.addEventListener('input', () => {
+    cur.title = edTitle.value;
+    cur.titleUpdated = Date.now();
+    scheduleScriptSave();
+  });
 
   el.querySelectorAll('[data-ins]').forEach(b => b.addEventListener('click', () => {
     const input = edText, a = input.selectionStart, z = input.selectionEnd, v = input.value, sel = v.slice(a, z);
@@ -995,19 +1037,27 @@ export function mountController(root, code) {
   }));
 
   // Settings
-  let sendSetT = 0, sendSetPending = false;
-  function commitSettings(layout) {
-    cancelResync();
+  let sendSetT = 0, sendSetTimer = 0, saveSetTimer = 0;
+  function flushSettings() {
+    clearTimeout(saveSetTimer); saveSetTimer = 0;
     store.saveSettings(settings);
-    if (layout) relayout(stage, engine, () => stage.setSettings(displaySettings(settings, profileFor(room.peersOf('prompter').find(p => p.id === primary)))));
-    else stage.setSettings(displaySettings(settings, profileFor(room.peersOf('prompter').find(p => p.id === primary))));
-    renderTicks(); fitPreview();
-    const now = performance.now();
-    if (now - sendSetT > 50) { sendSetT = now; room.send('settings', { s: settings }); }
-    else if (!sendSetPending) {
-      sendSetPending = true;
-      setTimeout(() => { sendSetPending = false; sendSetT = performance.now(); room.send('settings', { s: settings }); }, 50);
+  }
+  function sendSettings() {
+    clearTimeout(sendSetTimer); sendSetTimer = 0;
+    sendSetT = performance.now(); room.send('settings', { s: settings });
+  }
+  function commitSettings(fit) {
+    cancelResync();
+    clearTimeout(saveSetTimer);
+    saveSetTimer = setTimeout(flushSettings, 250);
+    if (fit) fitPreview();
+    else {
+      stage.setSettings(displaySettings(settings, profileFor(room.members.get(primary))));
+      views.updateSettings(settings);
     }
+    const elapsed = performance.now() - sendSetT;
+    if (elapsed >= 50) sendSettings();
+    else if (!sendSetTimer) sendSetTimer = setTimeout(sendSettings, 50 - elapsed);
   }
   function set(k, v) {
     const prev = settings[k];
@@ -1025,7 +1075,7 @@ export function mountController(root, code) {
     if (k === 'voiceLang' && engine.mode === 'voice' && settings.voiceDevice === 'controller') {
       tracker.stop(); tracker.start(v);
     }
-    refreshControls();
+    refreshControls(k === 'theme' ? null : new Set(k === 'sidePad' ? [k, 'leftPad', 'rightPad'] : ['textColor', 'bgColor', 'accentColor', 'noteColor'].includes(k) ? [k, 'theme'] : [k]));
   }
 
   function renderSettings() {
@@ -1067,13 +1117,14 @@ export function mountController(root, code) {
     }
     return '';
   }
-  function refreshControls() {
-    el.querySelectorAll('[data-a="mirror"]').forEach(button => {
+  function refreshControls(keys = null) {
+    if (!keys || keys.has('orient')) el.querySelectorAll('[data-a="mirror"]').forEach(button => {
       button.classList.toggle('on', settings.mirrorH);
       button.setAttribute('aria-pressed', String(settings.mirrorH));
     });
     const body = $('.set-body');
     GROUPS.forEach(g => g.items.forEach(([k, type, o]) => {
+      if (keys && !keys.has(k)) return;
       const row = body.querySelector(`[data-k="${k}"]`);
       if (!row) return;
       const v = settings[k] ?? settings.sidePad;
@@ -1110,7 +1161,7 @@ export function mountController(root, code) {
     if (k === 'orient') {
       const [h, v] = b.dataset.v.split('-').map(Number);
       settings = { ...settings, mirrorH: !!h, mirrorV: !!v };
-      commitSettings(false); refreshControls();
+      commitSettings(true); refreshControls(new Set(['orient']));
       return;
     }
     const v = typeof DEFAULTS[k] === 'number' ? +b.dataset.v : b.dataset.v;
@@ -1125,17 +1176,17 @@ export function mountController(root, code) {
   // Dialogs
   let connectModal = null;
   function openConnect() {
-    const url = roomUrl('p', code);
+    if (connectModal) return;
     connectModal = modal(`
       <h2>Подключить суфлёр</h2>
       <p class="muted">${localMode ? t('На телефоне или планшете в той же Wi‑Fi сети отсканируйте QR. Суфлёр откроется сразу; компьютер остаётся пультом.') : t('На устройстве, которое будет показывать текст, откройте этот сайт и выберите «Суфлёр» с кодом комнаты — или просто отсканируйте QR камерой.')}</p>
       <div class="connect-grid">
-        <div class="qr-card">${qrSvg(url)}</div>
+        <div class="qr-card"></div>
         <div class="connect-side">
           <div class="big-code">${code.split('').map(c => `<span>${c}</span>`).join('')}</div>
           <button class="pill-btn" data-m="copy">${icon('link')}<span>Скопировать ссылку</span></button>
-          ${localMode ? `<p class="connect-address">${escapeHtml(url)}</p>` : ''}
-          ${platform.has('networkSettings') && window.efirNative?.addresses?.length > 1 ? `<label class="set-row"><span>${t('Адрес локальной сети')}</span><select data-m="address">${window.efirNative.addresses.map(a => `<option value="${escapeHtml(a.address)}" ${url.includes('//' + a.address + ':') ? 'selected' : ''}>${escapeHtml(a.name)} · ${escapeHtml(a.address)}</option>`).join('')}</select></label>` : ''}
+          ${localMode ? '<p class="connect-address"></p>' : ''}
+          ${platform.has('networkSettings') ? '<label class="set-row" hidden><span>Адрес локальной сети</span><select data-m="address"></select></label>' : ''}
           ${localMode ? '' : `<button class="pill-btn" data-m="win">${icon('window')}<span>Открыть здесь в новом окне</span></button>`}
           <div class="devices"></div>
         </div>
@@ -1143,7 +1194,7 @@ export function mountController(root, code) {
       <div class="modal-lan"></div>
       <p class="fine">${localMode ? t('Связь через приложение Эфир по Wi‑Fi. Интернет не нужен. Если включён VPN, разрешите «Доступ к локальной сети / Allow LAN» или исключите браузер из туннеля.') : t('Устройства соединяются напрямую (WebRTC). В одной Wi‑Fi сети данные идут по локальной сети — не через интернет. Интернет нужен только на пару секунд для «знакомства» по коду.')}</p>`,
       { cls: 'connect', onClose: () => { if (connectModal && connectModal.lan) connectModal.lan.destroy(); connectModal = null; } });
-    connectModal.el.querySelector('[data-m="copy"]').onclick = () => copyText(url);
+    updateConnectNetwork();
     const address = connectModal.el.querySelector('[data-m="address"]');
     if (address) address.onchange = () => platform.send('selectAddress', { address: address.value });
     const win = connectModal.el.querySelector('[data-m="win"]');
@@ -1156,11 +1207,37 @@ export function mountController(root, code) {
     if (!connectModal) return;
     const ps = room.peersOf('prompter');
     const link = room.linkInfo();
-    connectModal.el.querySelector('.devices').innerHTML = ps.length
+    const devices = connectModal.el.querySelector('.devices');
+    const html = ps.length
       ? ps.map(p => `<div class="dev"><i class="dot" data-s="ok"></i><b>${escapeHtml((p.hello && p.hello.name) || t('Суфлёр'))}</b><span>${p.hello && p.hello.vw ? p.hello.vw + '×' + p.hello.vh : ''}${p.local ? ' · ' + t('это же устройство') : link && link.route === 'lan' ? ' · LAN' : ''}${link && link.rtt != null && !p.local ? ' · ' + t('{rtt} мс', { rtt: link.rtt }) : ''}</span><span>${escapeHtml(readyText(readiness.get(p.id) || p.hello?.ready))}</span></div>`).join('')
       : `<div class="dev wait"><i class="dot" data-s="wait"></i><span>${t('Ждём суфлёр…')}</span></div>`;
+    if (html !== connectModal.devices) { connectModal.devices = html; devices.innerHTML = html; }
   }
-  const onNetwork = () => { if (connectModal) { connectModal.close(); openConnect(); } };
+  function updateConnectNetwork() {
+    const dialog = connectModal;
+    if (!dialog) return;
+    const url = roomUrl('p', code);
+    if (dialog.url !== url) {
+      dialog.url = url;
+      const link = dialog.el.querySelector('.connect-address');
+      if (link) link.textContent = url;
+      dialog.el.querySelector('[data-m="copy"]').onclick = () => copyText(url);
+      qrSvg(url).then(svg => {
+        if (connectModal === dialog && dialog.url === url) dialog.el.querySelector('.qr-card').innerHTML = svg;
+      });
+    }
+    const select = dialog.el.querySelector('[data-m="address"]');
+    if (!select) return;
+    const addresses = window.efirNative?.addresses || [];
+    select.parentElement.hidden = addresses.length <= 1;
+    const key = JSON.stringify(addresses);
+    if (key !== dialog.addresses) {
+      dialog.addresses = key;
+      select.replaceChildren(...addresses.map(a => new Option(a.name + ' · ' + a.address, a.address)));
+    }
+    select.value = new URL(url).hostname;
+  }
+  const onNetwork = updateConnectNetwork;
   window.addEventListener('efirnetwork', onNetwork);
   function readyText(ready) {
     if (!ready) return t('Проверяем готовность экрана…');
@@ -1183,41 +1260,52 @@ export function mountController(root, code) {
   // Drawing
   const playBtn = $('.play-btn'), cdNum = $('.cd-num');
   const tEl = $('.t-el'), tRm = $('.t-rm'), tSec = $('.t-sec'), fill = $('.scrub-fill'), knob = $('.scrub-knob');
-  const speedVal = $('.speed-val b'), vStatus = $('.voice-status span');
-  let lastUi = '';
+  const speedLabel = $('.speed-val'), speedVal = speedLabel.querySelector('b');
+  const voiceStatus = $('.voice-status'), vStatus = voiceStatus.querySelector('span');
+  const manualBtn = $('[data-a="manual"]'), voiceBtn = $('[data-a="voice"]');
+  const voiceLabels = {
+    off: 'Микрофон выключен', listening: 'Слушаю… начните читать', hearing: 'Слышу вас — текст идёт за голосом',
+    denied: 'Нет доступа к микрофону', unsupported: localMode ? 'Распознавание недоступно — проверьте язык и разрешения приложения' : 'Браузер не распознаёт речь',
+    network: 'Распознаванию нужен интернет',
+  };
+  let lastUi = '', elapsed, remaining, progress, trackWidth, knobPosition;
+  const trackObserver = new ResizeObserver(([entry]) => {
+    trackWidth = entry.contentRect.width;
+    updateTransport(false);
+  });
+  trackObserver.observe(track);
   function updateTransport(force) {
     const pps = stage.pxPerSec(engine.speed);
     const f = stage.max ? engine.pos / stage.max : 0;
-    fill.style.transform = `scaleX(${f})`;
-    knob.style.left = (f * 100) + '%';
+    if (f !== progress) { progress = f; fill.style.transform = `scaleX(${f})`; }
+    const x = f * (trackWidth || 0);
+    if (x !== knobPosition) { knobPosition = x; knob.style.transform = `translateX(${x}px)`; }
+    const nextElapsed = Math.round(engine.pos / pps), nextRemaining = Math.round((stage.max - engine.pos) / pps);
+    if (nextElapsed !== elapsed) { elapsed = nextElapsed; tEl.textContent = fmt(elapsed); }
+    if (nextRemaining !== remaining) { remaining = nextRemaining; tRm.textContent = '−' + fmt(remaining); }
     const vState = settings.voiceDevice === 'controller' ? localVoiceState : (remote && remote.voiceState) || 'off';
-    const sig = `${engine.playing}|${Math.ceil(engine.cd)}|${engine.mode}|${engine.speed}|${vState}|${Math.round(engine.pos / pps)}|${Math.round((stage.max - engine.pos) / pps)}`;
+    const sig = `${engine.playing}|${Math.ceil(engine.cd)}|${engine.mode}|${engine.speed}|${vState}|${stage.max}|${pps}|${stage.words.length}|${settings.voiceDevice}`;
     if (sig === lastUi && !force) return;
     lastUi = sig;
     el.classList.toggle('playing', engine.playing && engine.cd <= 0);
     el.classList.toggle('counting', engine.cd > 0);
     el.classList.toggle('voice-on', engine.mode === 'voice');
-    $('[data-a="manual"]').classList.toggle('on', engine.mode !== 'voice');
-    $('[data-a="voice"]').classList.toggle('on', engine.mode === 'voice');
-    $('[data-a="manual"]').setAttribute('aria-pressed', String(engine.mode !== 'voice'));
-    $('[data-a="voice"]').setAttribute('aria-pressed', String(engine.mode === 'voice'));
+    manualBtn.classList.toggle('on', engine.mode !== 'voice');
+    voiceBtn.classList.toggle('on', engine.mode === 'voice');
+    manualBtn.setAttribute('aria-pressed', String(engine.mode !== 'voice'));
+    voiceBtn.setAttribute('aria-pressed', String(engine.mode === 'voice'));
     playBtn.disabled = engine.mode === 'voice';
     cdNum.textContent = engine.cd > 0 ? Math.ceil(engine.cd) : '';
-    tEl.textContent = fmt(engine.pos / pps);
-    tRm.textContent = '−' + fmt((stage.max - engine.pos) / pps);
     const minutes = stage.max / pps / 60;
     const tempo = minutes > 0 ? Math.round(stage.words.length / minutes) : 0;
     speedVal.textContent = tempo || '—';
     speedRange.setAttribute('aria-valuetext', t('Примерно {tempo} слов в минуту', { tempo }));
-    $('.speed-val').title = t('Примерный темп для текущего экрана. Скорость прокрутки: {speed}. Длительность: ≈ {duration}', { speed: engine.speed.toFixed(1), duration: fmt(stage.max / pps) });
+    speedLabel.title = t('Примерный темп для текущего экрана. Скорость прокрутки: {speed}. Длительность: ≈ {duration}', { speed: engine.speed.toFixed(1), duration: fmt(stage.max / pps) });
     if (document.activeElement !== speedRange) speedRange.value = engine.speed;
     speedRange.style.setProperty('--p', ((engine.speed - 0.1) / 11.9 * 100) + '%');
-    const vtxt = {
-      off: t('Микрофон выключен'), listening: t('Слушаю… начните читать'), hearing: t('Слышу вас — текст идёт за голосом'),
-      denied: t('Нет доступа к микрофону'), unsupported: localMode ? t('Распознавание недоступно — проверьте язык и разрешения приложения') : t('Браузер не распознаёт речь'), network: t('Распознаванию нужен интернет'),
-    }[vState] || '';
+    const vtxt = engine.mode === 'voice' && voiceLabels[vState] ? t(voiceLabels[vState]) : '';
     vStatus.textContent = engine.mode === 'voice' ? `${localMode ? t('Микрофон {name}', { name: platform.native ? platform.name : hostName }) : settings.voiceDevice === 'controller' ? t('Микрофон пульта') : t('Микрофон суфлёра')} · ${vtxt}` : '';
-    $('.voice-status').dataset.s = vState;
+    voiceStatus.dataset.s = vState;
   }
 
   frames = new FrameLoop(stage, engine, () => {
@@ -1241,7 +1329,6 @@ export function mountController(root, code) {
   renderProfiles(); renderReady();
   syncEditor();
   fitPreview();
-  const freshnessTimer = setInterval(refreshPrimaryPreview, 1000);
   if (document.fonts) document.fonts.ready.then(() => { stage.invalidate(); renderTicks(); });
   const releaseLanguage = onLanguageChange(() => {
     renderSettings();
@@ -1255,12 +1342,14 @@ export function mountController(root, code) {
       releaseLanguage(); releaseTranslation();
       window.removeEventListener('efirnetwork', onNetwork);
       views.destroy(); frames.destroy(); stage.destroy();
-      previewObserver.disconnect();
+      previewObserver.disconnect(); trackObserver.disconnect();
       clearInterval(freshnessTimer);
       clearTimeout(resyncTimer);
       clearTimeout(edTimer); clearTimeout(saveTimer);
-      document.removeEventListener('visibilitychange', saveBeforeHide);
-      platform.events.removeEventListener('visible', saveBeforeHide);
+      clearTimeout(seekTimer); clearTimeout(sendSetTimer);
+      if (saveSetTimer) flushSettings();
+
+      platform.events.removeEventListener('visible', onVisibility);
       remotes.destroy();
       tracker.stop();
       platform.send('sessionActive', { active: false });
@@ -1273,4 +1362,3 @@ export function mountController(root, code) {
 }
 
 function stripName(t) { const { name, ...rest } = t; return rest; }
-function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }

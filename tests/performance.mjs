@@ -4,15 +4,16 @@ import assert from 'node:assert/strict';
 const base = process.env.EFIR_URL || 'http://localhost:18765';
 const phoneBase = process.env.EFIR_LAN_URL || 'http://0.0.0.0:18765';
 const duration = Number(process.env.EFIR_PERF_MS || 8000);
+const readerCount = Number(process.env.EFIR_PERF_READERS || 3);
 const browser = await chromium.launch({ headless: true });
-const result = { environment: { browser: browser.version(), mainThreadOnly: true, durationMs: duration }, cases: [] };
+const result = { environment: { browser: browser.version(), mainThreadOnly: true, durationMs: duration, readerCount }, cases: [] };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 try {
   const mc = await browser.newContext({ viewport: { width: 1320, height: 820 } });
   await mc.addInitScript(() => { window.efirNative = { version: 1, role: 'controller', capabilities: { speech: true }, postMessage() {} }; });
   const pc = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
   const instrument = () => {
-    window.perfStats = { raf: 0, writes: 0, writeBytes: 0, sends: 0, sendBytes: 0, states: 0, mutations: 0, metadataMutations: 0 };
+    window.perfStats = { raf: 0, writes: 0, writeBytes: 0, sends: 0, sendBytes: 0, states: 0, followStates: 0, received: 0, mutations: 0, metadataMutations: 0 };
     const raf = window.requestAnimationFrame.bind(window);
     window.requestAnimationFrame = callback => raf(time => { window.perfStats.raf++; callback(time); });
     const write = Storage.prototype.setItem;
@@ -20,10 +21,20 @@ try {
       window.perfStats.writes++; window.perfStats.writeBytes += new TextEncoder().encode(value).length;
       return write.call(this, key, value);
     };
+    window.WebSocket = class extends WebSocket {
+      constructor(...args) {
+        super(...args);
+        this.addEventListener('message', () => window.perfStats.received++);
+      }
+    };
     const send = WebSocket.prototype.send;
     WebSocket.prototype.send = function(data) {
       window.perfStats.sends++; window.perfStats.sendBytes += new TextEncoder().encode(data).length;
-      try { if (JSON.parse(data).t === 'state') window.perfStats.states++; } catch { /* Binary packet. */ }
+      try {
+        const { t } = JSON.parse(data);
+        if (t === 'state') window.perfStats.states++;
+        if (t === 'followState') window.perfStats.followStates++;
+      } catch { /* Binary packet. */ }
       return send.call(this, data);
     };
   };
@@ -35,7 +46,8 @@ try {
   await controller.locator('.ctl.has-prompter').waitFor();
   await phone.locator('.prompter.has-script.has-ctl').waitFor();
   const readers = [phone], readerContexts = [pc];
-  for (const viewport of [{ width: 1600, height: 900 }, { width: 500, height: 900 }]) {
+  for (let i = 1; i < readerCount; i++) {
+    const viewport = i % 2 ? { width: 1600, height: 900 } : { width: 500, height: 900 };
     const context = await browser.newContext({ viewport });
     await context.addInitScript(instrument);
     const page = await context.newPage();
@@ -76,7 +88,7 @@ try {
     const beforeAll = await allMetrics(), before = beforeAll[1];
     await delay(duration);
     const afterAll = await allMetrics(), after = afterAll[1];
-    const devices = await Promise.all(pages.map(async (page, i) => ({ role: i ? 'reader' : 'controller', ...await page.evaluate(() => window.perfStats), taskCpuPercent: +(100 * (afterAll[i].TaskDuration - beforeAll[i].TaskDuration) / (afterAll[i].Timestamp - beforeAll[i].Timestamp)).toFixed(3) })));
+    const devices = await Promise.all(pages.map(async (page, i) => ({ role: i ? 'reader' : 'controller', ...await page.evaluate(() => window.perfStats), layouts: afterAll[i].LayoutCount - beforeAll[i].LayoutCount, styleRecalculations: afterAll[i].RecalcStyleCount - beforeAll[i].RecalcStyleCount, scriptMs: +((afterAll[i].ScriptDuration - beforeAll[i].ScriptDuration) * 1000).toFixed(2), taskCpuPercent: +(100 * (afterAll[i].TaskDuration - beforeAll[i].TaskDuration) / (afterAll[i].Timestamp - beforeAll[i].Timestamp)).toFixed(3) })));
     const stats = await phone.evaluate(() => ({ ...window.perfStats, videoPlaying: !!document.querySelector('video') && !document.querySelector('video').paused }));
     result.cases.push({ name, ...stats, devices, taskCpuPercent: +(100 * (after.TaskDuration - before.TaskDuration) / (after.Timestamp - before.Timestamp)).toFixed(3), scriptMs: +((after.ScriptDuration - before.ScriptDuration) * 1000).toFixed(2), layouts: after.LayoutCount - before.LayoutCount, styleRecalculations: after.RecalcStyleCount - before.RecalcStyleCount, decodedVideoFrames: await videoFrames() - beforeVideo, heapMB: +(after.JSHeapUsedSize / 1048576).toFixed(2), domNodes: after.Nodes });
   }
@@ -132,6 +144,7 @@ try {
   assert.ok(await demo.evaluate(() => window.perfStats.raf) > 0, 'onscreen demo resumes');
   console.log(JSON.stringify(result, null, 2));
   for (const sample of result.cases) {
+    if (readerCount === 1) assert.equal(sample.devices[0].followStates, 0, 'no follower packets with a single reader');
     assert.ok(sample.devices[0].metadataMutations <= 8, 'unchanged display labels do not churn during playback');
     assert.ok(sample.videoPlaying && sample.decodedVideoFrames > 0, 'screen protection stays active');
     assert.ok(sample.decodedVideoFrames <= duration / 1000 * 2 + 3, 'wake video decode budget');

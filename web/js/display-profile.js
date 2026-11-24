@@ -18,14 +18,14 @@ export function cleanDisplayProfile(value) {
   return result;
 }
 export function displaySettings(settings, profile) {
-  const overrides = cleanDisplayProfile(profile).overrides;
+  const overrides = profile?.overrides;
   // A display's symmetric override replaces the shared horizontal margins;
   // its own explicit left/right overrides still take precedence.
-  return { ...settings, ...(overrides.sidePad != null ? { leftPad: null, rightPad: null } : {}), ...overrides };
+  return { ...settings, ...(overrides?.sidePad != null ? { leftPad: null, rightPad: null } : {}), ...overrides };
 }
 // Geometry, not color/mirror, decides whether a pixel position can be reused.
+export const LAYOUT_KEYS = ['fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing',
+    'uppercase', 'sidePad', 'leftPad', 'rightPad', 'topPad', 'bottomPad', 'markerPos', 'align'];
 export function layoutSignature(settings) {
-  return JSON.stringify(['fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing',
-    'uppercase', 'sidePad', 'leftPad', 'rightPad', 'topPad', 'bottomPad', 'markerPos', 'align']
-    .map(key => settings[key] ?? null));
+  return JSON.stringify(LAYOUT_KEYS.map(key => settings[key] ?? null));
 }

@@ -45,3 +45,7 @@ export function restoreSession(stage, engine, state) {
   engine.playing = engine.mode === 'scroll' && state.playing === true;
   engine.cd = engine.playing ? Math.max(0, Math.min(10, number(state.cd, 0))) : 0;
 }
+
+export function clampSpeed(value) {
+  return Math.round(Math.max(.1, Math.min(20, value)) * 10) / 10;
+}
