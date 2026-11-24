@@ -74,7 +74,6 @@ adb -s SERIAL shell am instrument -w \
 Flows use actual touch events and check visible Read controls, fullscreen,
 mirror, screen flags, hidden WebView drawing, back navigation, language
 persistence and service lifetime across mode changes.
-
 The microphone flow requires API 31 or later, a system on-device recognition
 service and an app profile that can still request microphone permission.
 The test accepts a missing offline language model after the request reaches the
@@ -92,8 +91,9 @@ adb -s SERIAL forward tcp:19877 tcp:8765
 EFIR_URL=http://localhost:19877 node tests/relay.mjs
 ```
 
-The fixture holds the service for 180 seconds with its controller closed.
-Protocol assertions remain in `relay.mjs`.
+The fixture reports `efirUrl` when the sharing service is listening and holds
+it open for 180 seconds. It starts with no controller, so the relay test can
+run as soon as the URL appears.
 
 ## macOS window close and quit
 
