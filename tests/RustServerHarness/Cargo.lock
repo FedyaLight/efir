@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "efir-desktop"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "axum",
  "futures-util",
