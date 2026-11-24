@@ -59,12 +59,19 @@ Microphone states are `listening/hearing/denied/unsupported`. All transcript
 sources use `VoiceTracker._hear`. The optional session identifier lets the page
 ignore late callbacks from a previous recognition session.
 
+The desktop bridge exposes `speechForeground`. Voice mode and its reading
+position survive hiding the window. The microphone stops while hidden and
+resumes with a new session when the controller becomes visible again.
+Before discarding the WebView, macOS and Tauri invoke `efirNative.onClose()`
+and wait for JavaScript completion. It flushes local edits and leaves the room.
+
 ## Transport and session state
 
 - `GET /efir-local.json` returns `{local: true, version, hostName, platform}`.
   Without it, static hosting uses PeerJS/WebRTC and BroadcastChannel.
-- Files have MIME types, ETags, HEAD support, single HTTP byte ranges (206/416),
-  and immutable font caching.
+- Files have MIME types, ETags, HEAD support and immutable font caching.
+  A single satisfiable `bytes` range returns 206. Malformed, unsatisfiable and
+  multi-range byte requests return 416. Other range units are ignored.
 - `/ws?room=LOCAL` relays unchanged messages to every other client. Local hosting
   has one session; the query parameter does not isolate rooms.
 - `__efir_ping` without `from` receives `__efir_pong` with the original `ts`.
@@ -74,12 +81,17 @@ ignore late callbacks from a previous recognition session.
 The port is 8765 or the next free port. Hosts publish `_efir._tcp` with Bonjour.
 Android uses NsdManager during mode selection; browsers use QR or a URL.
 Windows/Linux refresh hardware addresses every three seconds. macOS observes
-System Configuration changes, and Android receives Wi-Fi and Ethernet callbacks. Standalone Android binds only loopback, without
-Bonjour or a server notification.
+System Configuration changes and remembers the selected LAN address across
+launches. It uses an available address while the preferred address is absent.
+Android receives Wi-Fi and Ethernet callbacks. Standalone Android binds only
+loopback, without Bonjour or a server notification.
 
 A reader greeting includes viewport, script version (`sid`), `session` and
 `ready`. Periodic presence omits the session snapshot. A controller that missed
-the greeting can request it on the next presence announcement. An existing reader can restore a reopened controller. New readers
+the greeting can request it on the next presence announcement. Static hosting
+distinguishes automatic greetings from explicit greetings so a second route
+can attach without repeating the snapshot. Existing greetings still request
+sync. An existing reader can restore a reopened controller. New readers
 receive targeted `settings`, `script`/`scriptPart`, then `session` with
 `to/tag/state`. They wait for the complete matching script before restoring.
 `state.sync` acknowledges the tag, blocking stale preview state until then.
@@ -108,8 +120,11 @@ CPU WakeLock. Mode changes replace the listener and release the old lifecycle.
 A generation check prevents stale asynchronous server starts.
 
 All servers limit connections to 32 and messages to 16 MiB, bound queues by
-frame count and byte size, and apply idle/read and write deadlines. The Android
-watchdog checks deadlines once a second. Bridges accept trusted
+frame count and byte size, and apply idle/read and write deadlines. macOS and
+Android additionally cap message fragmentation at 4096. At capacity macOS
+rejects the HTTP upgrade, while Rust and Android can close after upgrading.
+An in-flight Swift write can run until its deadline after relay removal. The
+Android watchdog checks deadlines once a second. Bridges accept trusted
 main-frame origins and the intended role. Android uses a document-start script
 and WebMessageListener with exact origin checks; Tauri checks its local controller
 URL and window label. Owners stop speech when closed.
