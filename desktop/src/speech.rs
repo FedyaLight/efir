@@ -376,13 +376,13 @@ mod tests {
                 }
             };
             assert!(!raw.is_null());
-            let json: serde_json::Value =
-                serde_json::from_str(unsafe { CStr::from_ptr(raw) }.to_str().unwrap()).unwrap();
+            let result: Transcript<'_> =
+                serde_json::from_slice(unsafe { CStr::from_ptr(raw) }.to_bytes()).unwrap();
             if final_result > 0 {
-                transcript.push_str(json["text"].as_str().unwrap());
+                transcript.push_str(&result.text);
                 transcript.push(' ');
             } else {
-                partial |= !json["partial"].as_str().unwrap().is_empty();
+                partial |= !result.partial.is_empty();
             }
         }
         assert!(partial, "streaming transcript before end of phrase");
@@ -395,5 +395,13 @@ mod tests {
             "{transcript}"
         );
         println!("Offline Vosk transcript: {transcript}");
+    }
+
+    #[test]
+    fn transcript_decodes_escaped_text_and_missing_fields() {
+        let result: Transcript<'_> =
+            serde_json::from_str(r#"{"text":"say \"hello\"\nagain"}"#).unwrap();
+        assert_eq!(result.text, "say \"hello\"\nagain");
+        assert!(result.partial.is_empty());
     }
 }
