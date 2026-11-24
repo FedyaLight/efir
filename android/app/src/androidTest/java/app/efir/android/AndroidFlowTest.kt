@@ -1,15 +1,21 @@
 package app.efir.android
 
 import android.Manifest
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.SystemClock
+import android.speech.SpeechRecognizer
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityNodeInfo
 import android.webkit.WebView
 import android.widget.Button
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import java.net.HttpURLConnection
@@ -19,6 +25,7 @@ import java.util.concurrent.TimeUnit
 import org.json.JSONArray
 import org.json.JSONTokener
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 // Exercise actual Activity, WebView and service lifecycles,
@@ -141,6 +148,148 @@ class AndroidFlowTest {
         val controller = views(scenario).first()
         until("controller loaded") { js(controller, "!!document.querySelector('.ctl')") == true }
         return controller
+    }
+
+    private fun microphoneDialogButton(id: String): AccessibilityNodeInfo? {
+        val root = instrumentation.uiAutomation.rootInActiveWindow ?: return null
+        val resources = "com.android.permissioncontroller:id"
+        return root.findAccessibilityNodeInfosByViewId("$resources/$id").firstOrNull()
+    }
+
+    private fun observeVoice(view: WebView) {
+        js(view, """
+            window.states = [];
+            window.voiceStarts = [];
+            const bridge = window.efirNative;
+            const onState = bridge.onState;
+            const post = bridge.postMessage;
+            bridge.onState = (state, message, session) => {
+                states.push({state,session});
+                onState(state,message,session);
+            };
+            bridge.postMessage = message => {
+                if (message.action === 'voiceStart') voiceStarts.push(message.session);
+                post(message);
+            };
+        """.trimIndent())
+    }
+
+    @Test
+    fun microphonePermissionTracksCurrentVoiceRequest() {
+        assumeTrue("Requires an Android recognizer and a fresh microphone permission",
+            android.os.Build.VERSION.SDK_INT >= 31 &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(context) &&
+                context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+        prepare()
+        val automation = instrumentation.uiAutomation
+        automation.serviceInfo = automation.serviceInfo.apply {
+            flags = flags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+        }
+        val outcome = InstrumentationRegistry.getArguments().getString("efirPermissionOutcome", "start")
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var controller = openController(scenario, "Read on this device")
+            lateinit var activity: MainActivity
+            scenario.onActivity { activity = it }
+            observeVoice(controller)
+            js(controller, """
+                document.querySelector('[data-view=live]').click();
+                document.querySelector('[data-a=voice]').click();
+            """.trimIndent())
+            val deny = "permission_deny_button"
+            val allow = "permission_allow_foreground_only_button"
+            until("system microphone dialog") { microphoneDialogButton(deny) != null }
+            assertTrue(microphoneDialogButton(deny)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
+            until("permission result reaches the controller") {
+                js(controller, "states.some(e=>e.state==='denied')") == true
+            }
+            assertEquals("denied", js(controller, "states.map(e=>e.state).join(',')"))
+            until("denial reaches the active tracker") {
+                js(controller, "document.querySelector('.voice-status').dataset.s === 'denied'") == true
+            }
+
+            js(controller, """
+                states.length = 0;
+                document.querySelector('[data-a=manual]').click();
+                document.querySelector('[data-a=voice]').click();
+            """.trimIndent())
+            until("second microphone dialog") { microphoneDialogButton(allow) != null }
+            when (outcome) {
+                "stop" -> js(controller, "document.querySelector('[data-a=manual]').click()")
+                "replace" -> js(controller, """
+                    document.querySelector('[data-a=manual]').click();
+                    document.querySelector('[data-a=voice]').click();
+                """.trimIndent())
+                "hide" -> {
+                    val appTask = context.getSystemService(ActivityManager::class.java).appTasks
+                        .first { it.taskInfo.taskId == activity.taskId }
+                    scenario.moveToState(Lifecycle.State.CREATED)
+                    until("backgrounding cancels the pending request") {
+                        js(controller, "states.some(e=>e.state==='off')") == true
+                    }
+                    appTask.moveToFront()
+                    until("permission dialog returns") { microphoneDialogButton(allow) != null }
+                }
+                "reload" -> {
+                    val startingPage = js(controller, "performance.timeOrigin")
+                    js(controller, "location.reload()")
+                    until("new controller document") {
+                        js(controller, "document.querySelector('.ctl') ? performance.timeOrigin : 0")
+                            .let { it != 0 && it != startingPage }
+                    }
+                    observeVoice(controller)
+                }
+                "reopen" -> {
+                    val previous = controller
+                    instrumentation.runOnMainSync { activity.recreate() }
+                    until("new Activity owns the controller") {
+                        val next = runCatching { views(scenario).singleOrNull() }.getOrNull()
+                        if (next == null || next === previous ||
+                            js(next, "!!window.efirNative?.onState && !!document.querySelector('.ctl')") != true
+                        ) return@until false
+                        controller = next
+                        true
+                    }
+                    scenario.onActivity { activity = it }
+                    observeVoice(controller)
+                }
+            }
+            assertTrue(microphoneDialogButton(allow)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
+            until("granted permission and resumed Activity") {
+                var resumed = false
+                instrumentation.runOnMainSync { resumed = activity.lifecycle.currentState == Lifecycle.State.RESUMED }
+                resumed && context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            }
+            if (outcome == "start") {
+                // An emulator may expose an on-device service but have no installed speech model.
+                until("the granted request reaches the native recognizer") {
+                    js(controller, """
+                        ['listening','hearing','unsupported'].includes(document.querySelector('.voice-status').dataset.s)
+                    """.trimIndent()) == true
+                }
+                assertTrue(js(controller, "states.every(e=>e.session && !['denied','off'].includes(e.state))") == true)
+            } else {
+                val expected = if (outcome == "replace" || outcome == "hide") {
+                    "states.length===1 && states[0].state==='off' && states[0].session===voiceStarts.at(-1)"
+                } else "states.length===0"
+                assertTrue("A canceled request must not start after permission is granted", js(controller, expected) == true)
+            }
+            js(controller, "document.querySelector('[data-a=manual]').click()")
+
+            // A delayed bridge message after the Activity is stopped gets a terminal response.
+            scenario.moveToState(Lifecycle.State.CREATED)
+            js(controller, "window.efirNative.postMessage({action:'voiceStart',session:'hidden'})")
+            until("hidden start is acknowledged without recognition") {
+                js(controller, "states.some(e=>e.session==='hidden' && e.state==='off')") == true
+            }
+            scenario.moveToState(Lifecycle.State.RESUMED)
+            js(controller, "states.length=0; document.querySelector('[data-a=voice]').click()")
+            until("a new visible request uses the existing grant") {
+                js(controller, """
+                    states.some(e=>e.session && ['listening','hearing','unsupported'].includes(e.state))
+                """.trimIndent()) == true
+            }
+            println("Microphone $outcome with existing grant: ${js(controller, "states.map(e=>e.state).join(',')")}")
+        }
     }
 
     @Test

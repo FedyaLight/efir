@@ -75,6 +75,15 @@ Flows use actual touch events and check visible Read controls, fullscreen,
 mirror, screen flags, hidden WebView drawing, back navigation, language
 persistence and service lifetime across mode changes.
 
+The microphone flow requires API 31 or later, a system on-device recognition
+service and an app profile that can still request microphone permission.
+The test accepts a missing offline language model after the request reaches the
+recognizer. To repeat the test with a fresh permission, reset the app profile
+on the dedicated emulator before each run. Select
+`AndroidFlowTest#microphonePermissionTracksCurrentVoiceRequest` and pass
+`-e efirPermissionOutcome stop`, `replace`, `hide`, `reload` or `reopen` to exercise
+cancellation during the system prompt.
+
 To run the shared protocol check against Android, start instrumentation with
 `-e efirServerFixture true`. In another terminal:
 

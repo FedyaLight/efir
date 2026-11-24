@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.*
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.os.*
@@ -31,6 +32,8 @@ import java.util.concurrent.Executors
 import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
+    private data class VoiceRequest(val owner: WebView, val language: String, val session: String?)
+
     private lateinit var strings: Localization
     private lateinit var speech: NativeSpeech
     private lateinit var container: FrameLayout
@@ -54,9 +57,10 @@ class MainActivity : ComponentActivity() {
     private var awakeRequested = false
     private var connecting = false
     private var generation = 0
-    private var pendingLanguage = "ru-RU"
-    private var voiceSession: String? = null
-    private var voiceRequested = false
+    // The launcher still owes a result after the controller cancels its request.
+    private var microphoneInFlight = false
+    private var pendingVoice: VoiceRequest? = null
+    private var activeVoice: VoiceRequest? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var exportBytes: ByteArray? = null
     private var exportType = "text/plain"
@@ -71,10 +75,13 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ScanContract()) { result -> result.contents?.let { connect(it) } }
     private val microphone =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
-            if (allowed && resumed && controller != null) {
-                voiceRequested = true
-                speech.start(pendingLanguage)
-            } else voiceEvent("denied", strings.t("Нет доступа к микрофону"), false)
+            microphoneInFlight = false
+            val request = pendingVoice ?: return@registerForActivityResult
+            if (allowed) startPendingVoice()
+            else {
+                pendingVoice = null
+                sendVoiceState(request, "denied", strings.t("Нет доступа к микрофону"))
+            }
         }
     private val notification =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { startLocal(true) }
@@ -185,8 +192,6 @@ class MainActivity : ComponentActivity() {
         connecting = false
         closeViews()
         releaseService()
-        speech.stop()
-        voiceRequested = false
         fullscreen = false
         awakeRequested = false
         updateScreen()
@@ -482,6 +487,10 @@ class MainActivity : ComponentActivity() {
         )
         view.webViewClient =
             object : WebViewClient() {
+                override fun onPageStarted(web: WebView, url: String?, favicon: Bitmap?) {
+                    if (web === controller) stopVoice()
+                }
+
                 override fun shouldOverrideUrlLoading(
                     web: WebView,
                     request: WebResourceRequest,
@@ -575,25 +584,21 @@ class MainActivity : ComponentActivity() {
                 if (role == "controller") service?.selectAddress(message.optString("address"))
             "showPrompter" -> if (role == "controller") showLocalReader(view)
             "voiceStop" ->
-                if (role == "controller") {
-                    voiceRequested = false
-                    speech.stop()
-                }
+                if (role == "controller") stopVoice()
             "voiceModel" ->
-                if (role == "controller") speech.download(message.optString("lang", "ru-RU"))
-            "voiceStart" ->
                 if (role == "controller" && resumed) {
-                    pendingLanguage = message.optString("lang", "ru-RU")
-                    voiceSession = message.optString("session").takeIf { it.isNotEmpty() }
-                    voiceRequested = true
-                    if (
-                        !speech.supported ||
-                            checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
-                                PackageManager.PERMISSION_GRANTED
-                    )
-                        speech.start(pendingLanguage)
-                    else microphone.launch(Manifest.permission.RECORD_AUDIO)
+                    stopVoice()
+                    speech.download(message.optString("lang", "ru-RU"))
                 }
+            "voiceStart" ->
+                if (role == "controller")
+                    requestVoice(
+                        VoiceRequest(
+                            view,
+                            message.optString("lang", "ru-RU"),
+                            message.optString("session").takeIf { it.isNotEmpty() },
+                        )
+                    )
             "exportFile" ->
                 if (role == "controller") {
                     exportBytes = message.optString("text").toByteArray()
@@ -681,33 +686,70 @@ class MainActivity : ComponentActivity() {
 
     private fun visible(view: WebView, active: Boolean) = signal(view, "onVisible", active)
 
-    private fun voiceEvent(kind: String, text: String?, final: Boolean) {
-        if (kind == "off" || kind == "denied" || kind == "unsupported") voiceRequested = false
-        val session = voiceSession
-        val source = controller
-        main.post {
-            if (source !== controller) return@post
-            source?.let { view ->
-                if (kind == "transcript")
-                    call(
-                        view,
-                        "v => window.efirNative?.onTranscript?.(v.text,v.final,v.session)",
-                        JSONObject().put("text", text).put("final", final).put("session", session).toString(),
-                    )
-                else if (kind == "notice")
-                    call(
-                        view,
-                        "message => import('./js/ui.js').then(ui=>ui.toast(message))",
-                        JSONObject.quote(text.orEmpty()),
-                    )
-                else
-                    call(
-                        view,
-                        "v => window.efirNative?.onState?.(v.state,v.message,v.session)",
-                        JSONObject().put("state", kind).put("message", text ?: "").put("session", session).toString(),
-                    )
-            }
+    private fun requestVoice(request: VoiceRequest) {
+        if (request == pendingVoice || request == activeVoice) return
+        stopVoice()
+        if (!resumed || isFinishing || microphoneInFlight) {
+            sendVoiceState(request, "off")
+        } else {
+            pendingVoice = request
+            if (
+                speech.supported &&
+                    checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
+            ) {
+                microphoneInFlight = true
+                microphone.launch(Manifest.permission.RECORD_AUDIO)
+            } else startPendingVoice()
         }
+    }
+
+    private fun startPendingVoice() {
+        val request = pendingVoice ?: return
+        if (microphoneInFlight || !resumed) return
+        pendingVoice = null
+        if (request.owner !== controller || isFinishing) return
+        activeVoice = request
+        speech.start(request.language)
+    }
+
+    private fun stopVoice(reportOff: Boolean = false) {
+        val request = pendingVoice ?: activeVoice
+        pendingVoice = null
+        activeVoice = null
+        speech.stop()
+        if (reportOff && request != null) sendVoiceState(request, "off")
+    }
+
+    private fun sendVoiceState(request: VoiceRequest, state: String, text: String? = null) {
+        if (request.owner !== controller) return
+        call(
+            request.owner,
+            "v => window.efirNative?.onState?.(v.state,v.message,v.session)",
+            JSONObject().put("state", state).put("message", text.orEmpty())
+                .put("session", request.session).toString(),
+        )
+    }
+
+    private fun voiceEvent(kind: String, text: String?, final: Boolean) {
+        if (kind == "notice") {
+            controller?.let { view ->
+                call(
+                    view,
+                    "message => import('./js/ui.js').then(ui=>ui.toast(message))",
+                    JSONObject.quote(text.orEmpty()),
+                )
+            }
+            return
+        }
+        val request = activeVoice ?: return
+        if (kind == "off" || kind == "denied" || kind == "unsupported") activeVoice = null
+        if (kind == "transcript") {
+            call(
+                request.owner,
+                "v => window.efirNative?.onTranscript?.(v.text,v.final,v.session)",
+                JSONObject().put("text", text).put("final", final).put("session", request.session).toString(),
+            )
+        } else sendVoiceState(request, kind, text)
     }
 
     private fun updateScreen() {
@@ -734,6 +776,7 @@ class MainActivity : ComponentActivity() {
             it.onResume()
             visible(it, if (it === controller) prompter == null else true)
         }
+        startPendingVoice()
         if (controller == null && prompter == null && !bound) bonjour.discover()
         updateScreen()
     }
@@ -741,14 +784,20 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         resumed = false
         bonjour.stopDiscovery()
-        speech.stop()
-        if (voiceRequested) voiceEvent("off", null, false)
+        // The permission dialog pauses the Activity. Keep its request until the
+        // dialog returns, unless the Activity actually leaves the foreground.
+        if (!microphoneInFlight) stopVoice(reportOff = true)
         listOfNotNull(controller, prompter).forEach {
             visible(it, false)
             it.onPause()
         }
         updateScreen()
         super.onPause()
+    }
+
+    override fun onStop() {
+        stopVoice(reportOff = true)
+        super.onStop()
     }
 
     private fun closeView(view: WebView, closed: () -> Unit = {}) {
@@ -774,6 +823,7 @@ class MainActivity : ComponentActivity() {
 
     private fun closeViews() {
         val views = listOfNotNull(controller, prompter)
+        stopVoice()
         controller = null
         prompter = null
         devices = null
@@ -794,7 +844,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         generation++
-        speech.stop()
         bonjour.close()
         fileCallback?.onReceiveValue(null)
         closeViews()

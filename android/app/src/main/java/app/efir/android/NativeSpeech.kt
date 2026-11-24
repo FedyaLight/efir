@@ -223,6 +223,7 @@ class NativeSpeech(
                             override fun onProgress(progress: Int) {}
 
                             override fun onSuccess() {
+                                if (recognizer !== device) return
                                 emit(
                                     "notice",
                                     strings.t("Язык речи готов к работе без интернета"),
@@ -232,6 +233,7 @@ class NativeSpeech(
                             }
 
                             override fun onScheduled() {
+                                if (recognizer !== device) return
                                 emit(
                                     "notice",
                                     strings.t(
@@ -243,6 +245,7 @@ class NativeSpeech(
                             }
 
                             override fun onError(error: Int) {
+                                if (recognizer !== device) return
                                 emit(
                                     "notice",
                                     strings.t(
