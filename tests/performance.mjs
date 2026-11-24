@@ -145,6 +145,9 @@ try {
   console.log(JSON.stringify(result, null, 2));
   for (const sample of result.cases) {
     if (readerCount === 1) assert.equal(sample.devices[0].followStates, 0, 'no follower packets with a single reader');
+    if (sample.name === 'paused-http-video') {
+      assert.equal(sample.devices[0].followStates, 0, 'paused heartbeats do not repeat an unchanged follower snapshot');
+    }
     assert.ok(sample.devices[0].metadataMutations <= 8, 'unchanged display labels do not churn during playback');
     assert.ok(sample.videoPlaying && sample.decodedVideoFrames > 0, 'screen protection stays active');
     assert.ok(sample.decodedVideoFrames <= duration / 1000 * 2 + 3, 'wake video decode budget');

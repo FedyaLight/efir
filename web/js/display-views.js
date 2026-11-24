@@ -2,7 +2,7 @@ import { t } from './i18n.js';
 import { Stage, Engine } from './stage.js';
 import { FrameLoop } from './frames.js';
 import { platform } from './platform.js';
-import { restoreSession } from './session.js';
+import { restoreSession, sameStationarySession } from './session.js';
 import { cleanDisplayProfile, displaySettings, DISPLAY_FIELDS } from './display-profile.js';
 import { modal, escapeHtml as esc } from './ui.js';
 
@@ -150,6 +150,7 @@ export class DisplayViews {
     record.state = state; record.seen = performance.now();
     if (!this.active || !platform.visible) return;
     if (changed) this.refreshRecord(record);
+    else if (sameStationarySession(previous, state)) return;
     record.frames.setActive(true);
     restorePreview(record);
     record.frames.request();

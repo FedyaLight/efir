@@ -5,7 +5,7 @@ import { mountRemotes } from './remotes.js';
 import { FrameLoop } from './frames.js';
 import { localMode, nativeVoice, hostName } from './environment.js';
 import { platform } from './platform.js';
-import { captureSession, restoreSession, sessionPosition, clampSpeed } from './session.js';
+import { captureSession, restoreSession, sessionPosition, clampSpeed, sameStationarySession } from './session.js';
 
 // Controller: library, editor, preview and settings. Its engine follows
 // the reading screen, preserving matching layout and smooth scrolling.
@@ -119,7 +119,7 @@ export function mountController(root, code) {
   let lastNativeActive = null;
   const latest = new Map(), seen = new Map(), profiles = store.displayProfiles();
   let primaryStale = false, freshnessTimer = 0;
-  let views, commandTag = '', lastFollow = 0;
+  let views, commandTag = '', lastFollow = 0, lastFollowState = null;
   let allScreens = localStorage.getItem('efir.allScreens') !== 'false';
   let compareFormats = localStorage.getItem('efir.compareFormats') !== 'false';
   let preferredScreen = localStorage.getItem('efir.leadingScreen');
@@ -386,7 +386,10 @@ export function mountController(root, code) {
     fitPreview(); renderStatus(); frames?.request();
   }
   function configureDisplay(peer) { if (peer) profileDialog(profileFor(peer), settings, profile => updateDisplay(peer, profile)); }
-  function configureFollowers() { room.send('follow', { leader: primary }); }
+  function configureFollowers() {
+    lastFollowState = null;
+    room.send('follow', { leader: primary });
+  }
   function pickPrimary() {
     const ps = room.peersOf('prompter');
     const visible = ps.filter(p => (readiness.get(p.id) || p.hello?.ready)?.visible !== false);
@@ -517,17 +520,20 @@ export function mountController(root, code) {
       if ((allScreens || compareFormats) && (!prior || prior.vw !== m.vw || prior.vh !== m.vh)) fitPreview();
       return;
     }
-    const sizeChanged = !remote || remote.vw !== m.vw || remote.vh !== m.vh;
+    const previous = remote;
+    const sizeChanged = !previous || previous.vw !== m.vw || previous.vh !== m.vh;
     remote = m;
     if (primaryStale) refreshPrimaryPreview();
     const now = performance.now();
     if ((!commandTag || m.command === commandTag || now > Math.max(holdUntil, seekHold)) && now - lastFollow >= 45
-        && room.hasPeer('prompter', primary)) {
+        && room.hasPeer('prompter', primary) && !sameStationarySession(lastFollowState, m)) {
       const { t, from, role, seq, nativeVoice, ...state } = m;
-      lastFollow = now; room.send('followState', { leader: primary, state });
+      lastFollow = now; lastFollowState = m;
+      room.send('followState', { leader: primary, state });
     }
     if (sizeChanged) fitPreview();
 
+    const { pos, target, playing, speed, cd, mode, voiceIdx } = engine;
     if (now > holdUntil) {
       engine.playing = m.playing;
       engine.speed = m.speed;
@@ -553,7 +559,9 @@ export function mountController(root, code) {
       else engine.pos += d * 0.35;
       if (engine.target != null && Math.abs(engine.target - target) < 2) engine.target = null;
     }
-    frames?.request();
+    if (!sameStationarySession(previous, m) || pos !== engine.pos || target !== engine.target
+        || playing !== engine.playing || speed !== engine.speed || cd !== engine.cd
+        || mode !== engine.mode || voiceIdx !== engine.voiceIdx) frames?.request();
   });
 
   function scriptId() { return cur.id + ':' + cur.updated; }

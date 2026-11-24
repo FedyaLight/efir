@@ -15,6 +15,22 @@ export function captureSession(stage, engine, sid) {
     offset: (engine.pos + stage.markerY - top) / (stage.s.fontSize * stage.s.lineHeight) };
 }
 
+// Heartbeats refresh liveness, but an unchanged stationary snapshot
+// does not need another relay or preview frame.
+export function sameStationarySession(previous, state) {
+  return !!previous && !previous.playing && !state.playing && !previous.cd && !state.cd
+    && previous.sid === state.sid && previous.pos === state.pos
+    && previous.vw === state.vw && previous.vh === state.vh
+    && previous.layout === state.layout && previous.geometry === state.geometry
+    && previous.atStart === state.atStart && previous.atEnd === state.atEnd
+    && previous.word === state.word && previous.offset === state.offset
+    && previous.anchor?.a === state.anchor?.a && previous.anchor?.b === state.anchor?.b
+    && previous.anchor?.f === state.anchor?.f
+    && previous.speed === state.speed && previous.mode === state.mode
+    && previous.voiceIdx === state.voiceIdx && previous.voiceState === state.voiceState
+    && previous.command === state.command && previous.sync === state.sync;
+}
+
 // Interpolate between source line starts, avoiding jumps when a wider source
 // line wraps into several lines on a narrower follower.
 export function sessionPosition(stage, state) {
