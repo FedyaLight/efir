@@ -33,6 +33,7 @@ export class Room extends EventTarget {
     this.seq = 0;
     this.departed = new Map();
     this.lastSeq = new Map();           // from -> seq; deduplicate across transports.
+    this.unintroduced = new Map();      // Ignore duplicate discovery traffic without blocking an older hello.
     this.conns = new Map();             // peerId -> { conn, rtt, lan, last }
     this.members = new Map();           // clientId -> { role, hello, last, via }
     this.isHost = false;
@@ -122,7 +123,7 @@ export class Room extends EventTarget {
     this.bc = new BroadcastChannel(PREFIX + this.code);
     this.bc.onmessage = (e) => this._receive(e.data, null, 'local');
     // Introduce this peer to neighboring tabs.
-    this._broadcastHello = setTimeout(() => this.send('hello', this.getHello()), 50);
+    this._broadcastHello = setTimeout(() => this.send('hello', { ...this.getHello(), intro: 'local' }), 50);
   }
 
   // Local WebSocket
@@ -148,7 +149,7 @@ export class Room extends EventTarget {
       this._wsRtt = null;
       // Reintroduce after reconnecting; roles restore scripts and settings.
       for (const [id, m] of this.members) { this.members.delete(id); this.dispatchEvent(new CustomEvent('leave', { detail: { id, role: m.role } })); }
-      this.members.clear(); this.lastSeq.clear(); this.departed.clear();
+      this.members.clear(); this.lastSeq.clear(); this.unintroduced.clear(); this.departed.clear();
       this._setStatus('waiting');
       this.send('hello', this.getHello());
       this._socketPing();
@@ -327,7 +328,7 @@ export class Room extends EventTarget {
       rec.last = Date.now();
       clearTimeout(this._connTimeout);
       this._setStatus('connected');
-      this._direct(conn, { t: 'hello', ...this.getHello(), from: this.id, role: this.role, seq: ++this.seq });
+      this._direct(conn, { ...this.getHello(), t: 'hello', intro: 'p2p', from: this.id, role: this.role, seq: ++this.seq });
       this._detectRoute(rec);
       this._ping(rec);
     });
@@ -412,49 +413,68 @@ export class Room extends EventTarget {
 
   _receive(msg, viaPeer, transport) {
     if (!msg || typeof msg.from !== 'string' || !Number.isFinite(msg.seq) || msg.from === this.id) return;
+    const known = this.members.get(msg.from);
+    const now = Date.now();
+    const hello = msg.t === 'hello' && (!msg.to || msg.to === this.id);
+    const discovery = msg.t === 'helloRequest' || (msg.t === 'hello' && !hello);
+    // A reader's first greeting supplies its saved session. A lightweight
+    // heartbeat or an early readiness packet cannot substitute for it.
+    const waiting = !known && this.role === 'controller' && msg.role === 'prompter'
+      && !hello && msg.t !== 'bye' && !msg.session;
+    const local = known?.local;
+    if (known && transport === 'local' && !discovery) known.local = now;
+
     const last = this.lastSeq.get(msg.from) || 0;
     if (msg.seq <= last) return; // Duplicate received through both transports.
-    this.lastSeq.set(msg.from, msg.seq);
+    if (!known && !this.departed.has(msg.from) && (discovery || waiting)) {
+      if (msg.seq <= (this.unintroduced.get(msg.from)?.seq || 0)) return;
+      if (this.unintroduced.size >= 128 && !this.unintroduced.has(msg.from)) {
+        this.unintroduced.delete(this.unintroduced.keys().next().value);
+      }
+      this.unintroduced.set(msg.from, { seq: msg.seq, at: now });
+    } else this.lastSeq.set(msg.from, msg.seq);
 
     // Relay from the host to other peers.
     if (this.isHost && transport === 'p2p') this._fanout(msg, viaPeer);
 
-    if (msg.t === 'helloRequest' || (msg.t === 'hello' && msg.to && msg.to !== this.id)) {
+    if (discovery) {
       if (msg.t === 'helloRequest' && msg.to === this.id) this.send('hello', { ...this.getHello(), to: msg.from });
-      if (!this.members.has(msg.from) && !this.departed.has(msg.from)) this.lastSeq.delete(msg.from);
       return;
     }
 
     if (msg.t === 'bye') {
-      this.departed.set(msg.from, Date.now());
+      this.departed.set(msg.from, now);
+      this.unintroduced.delete(msg.from);
       const m = this.members.get(msg.from);
       this.members.delete(msg.from);
       if (m) this.dispatchEvent(new CustomEvent('leave', { detail: { id: msg.from, role: m.role } }));
       return;
     }
 
-    const known = this.members.get(msg.from);
-    // The first reader greeting supplies its saved session. A lightweight
-    // heartbeat or an early readiness packet cannot substitute for it.
-    if (!known && this.role === 'controller' && msg.role === 'prompter' && msg.t !== 'hello' && !msg.session) {
-      if (!this.departed.has(msg.from)) this.lastSeq.delete(msg.from);
+    if (waiting) {
       if (msg.t === 'presence') this.send('helloRequest', { to: msg.from });
       return;
     }
     this.departed.delete(msg.from);
-    const answer = msg.t === 'hello' && !known?.greeted;
+    this.unintroduced.delete(msg.from);
+    const answer = hello && !known?.greeted && !msg.to;
+    // Automatic replies and a second, already-covered route only introduce
+    // the peer. Unmarked greetings still request sync (older clients, a
+    // recovery reply, or a reader that changed its display identity).
+    const redundant = known?.greeted && (msg.intro === 'reply' || msg.intro === 'local'
+      || (msg.intro === 'p2p' && local != null && now - local < STALE));
     const m = known || { id: msg.from, role: msg.role, hello: null, last: 0 };
-    m.last = Date.now();
+    m.last = now;
     m.role = msg.role;
     if (transport === 'local') m.local = Date.now();
     if (msg.t === 'hello') m.greeted = true;
     if (msg.t === 'hello' || msg.t === 'presence') m.hello = { ...m.hello, ...msg };
     this.members.set(msg.from, m);
     if (!known) this.dispatchEvent(new CustomEvent('join', { detail: { id: msg.from, role: msg.role } }));
-    if (msg.t === 'hello' && known) this.dispatchEvent(new CustomEvent('join', { detail: { id: msg.from, role: msg.role, again: true } }));
+    if (hello && known && !redundant) this.dispatchEvent(new CustomEvent('join', { detail: { id: msg.from, role: msg.role, again: true } }));
 
     this.dispatchEvent(new CustomEvent('message', { detail: msg }));
-    if (answer && !msg.to) this.send('hello', { ...this.getHello(), to: msg.from });
+    if (answer) this.send('hello', { ...this.getHello(), to: msg.from, intro: 'reply' });
   }
 
   _heartbeat() {
@@ -482,6 +502,7 @@ export class Room extends EventTarget {
       }
     }
     for (const [id, left] of this.departed) if (now - left > STALE) { this.departed.delete(id); this.lastSeq.delete(id); }
+    for (const [id, seen] of this.unintroduced) if (now - seen.at > STALE) this.unintroduced.delete(id);
     if (localMode) {
       if (this.ws?.readyState === WebSocket.OPEN) this._setStatus(this.members.size ? 'connected' : 'waiting');
       return;

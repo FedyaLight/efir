@@ -19,17 +19,31 @@ const server = http.createServer(async (req, res) => {
 });
 await new Promise(r => server.listen(18766, '127.0.0.1', r));
 const browser = await chromium.launch({ headless: true, args: ['--disable-features=WebRtcHideLocalIpsWithMdns', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
+function recordHandshake() {
+  window.handshakePackets = [];
+  const post = BroadcastChannel.prototype.postMessage;
+  BroadcastChannel.prototype.postMessage = function (msg) {
+    if (msg.role === 'controller' && msg.to && ['settings', 'script', 'session', 'helloRequest'].includes(msg.t)) {
+      window.handshakePackets.push(msg.t);
+    }
+    return post.call(this, msg);
+  };
+}
 let broker;
 try {
   const context = await browser.newContext({ viewport: { width: 1320, height: 820 } });
   const errors = [];
   context.on('page', p => p.on('pageerror', e => errors.push(e.message)));
-  // Use the real signaling broker; same-profile tabs also have BroadcastChannel.
+  // Same-profile tabs can discover one another without a broker.
+  await context.routeWebSocket(/.*/, socket => socket.close());
   const c = await context.newPage(), p = await context.newPage();
-  await c.goto('http://127.0.0.1:18766/#/c/NET42');
+  await c.addInitScript(recordHandshake);
   await p.goto('http://127.0.0.1:18766/#/p/NET42');
+  await c.goto('http://127.0.0.1:18766/#/c/NET42');
   await c.locator('.ctl.has-prompter').waitFor();
   await p.locator('.prompter.has-script.has-ctl').waitFor();
+  await p.evaluate(() => new Promise(resolve => setTimeout(resolve, 300)));
+  assert.deepEqual(await c.evaluate(() => window.handshakePackets), ['settings', 'script', 'session']);
   assert.equal(await c.evaluate(async () => (await import('./js/environment.js')).localMode), false);
   assert.equal(await c.evaluate(() => typeof window.Peer), 'function');
   assert.ok(await c.locator('[data-a="window"]').count());
@@ -37,6 +51,21 @@ try {
   await c.locator('button[data-view="edit"]').first().click();
   await c.locator('.ed-text').fill('# Проверка\nПрежняя версия на обычном хостинге.');
   await p.locator('.text').filter({ hasText: 'Прежняя версия' }).waitFor();
+  // Hide the first announcement and deliver presence twice. The reader must
+  // get the current script through one recovery request and one snapshot.
+  await p.addInitScript(() => {
+    const post = BroadcastChannel.prototype.postMessage;
+    BroadcastChannel.prototype.postMessage = function (msg) {
+      if (msg.role === 'prompter' && msg.t === 'hello' && !msg.to) return;
+      if (msg.role === 'prompter' && msg.t === 'presence') post.call(this, msg);
+      return post.call(this, msg);
+    };
+  });
+  await c.evaluate(() => { window.handshakePackets.length = 0; });
+  await p.reload();
+  await p.locator('.text').filter({ hasText: 'Прежняя версия' }).waitFor();
+  await c.waitForFunction(() => window.handshakePackets.includes('session'));
+  assert.deepEqual(await c.evaluate(() => window.handshakePackets), ['helloRequest', 'settings', 'script', 'session']);
   // Separate profiles require WebRTC rather than BroadcastChannel.
   const a = await browser.newContext(), b = await browser.newContext();
   // Delay real broker negotiation past the former eight-second deadline.
@@ -135,6 +164,7 @@ try {
     broker.once('exit', () => { clearTimeout(timer); reject(new Error('PeerServer stopped')); });
   });
   const customController = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] }), customReader = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+  await customController.addInitScript(recordHandshake);
   const configureBroker = async (custom, key = 'efir-test') => {
     await custom.route('**/rtc-config.json', async route => {
       const config = JSON.parse(await readFile(resolve(root, 'rtc-config.json'), 'utf8'));
@@ -154,6 +184,10 @@ try {
   await cp.goto(`http://127.0.0.1:18766/#/p/${customCode}`);
   await cc.locator('.ctl.has-prompter').waitFor();
   await cp.locator('.prompter.has-script.has-ctl').waitFor();
+  // Let the ordered hello exchange finish on this real data channel before
+  // counting the targeted snapshot. Separate profiles have no local transport.
+  await cp.evaluate(() => new Promise(resolve => setTimeout(resolve, 500)));
+  assert.deepEqual(await cc.evaluate(() => window.handshakePackets), ['settings', 'script', 'session']);
   await cc.locator('button[data-view="edit"]').first().click();
   await cc.locator('.ed-text').fill('# Custom signaling\nScript through a self-hosted broker.');
   await cp.locator('.text').filter({ hasText: 'Script through a self-hosted broker.' }).waitFor();
@@ -174,7 +208,7 @@ try {
   assert.equal(rejection.probe.signaling.state, 'rejected');
   await wrongKey.close();
   assert.deepEqual(errors, []);
-  console.log('PASS static hosting: no local marker, role choices, six home languages, BroadcastChannel, PeerJS loaded, first failed broker dial recovers into delayed real WebRTC, live channel survives broker outage, blocked broker diagnosis, configurable PeerServer');
+  console.log('PASS static hosting: single snapshot over BroadcastChannel and PeerJS, missed hello recovery, six home languages, delayed WebRTC after failed broker dial, live channel survives broker outage, blocked broker diagnosis, configurable PeerServer');
 } finally {
   await browser.close(); await new Promise(r => server.close(r));
   if (broker && broker.exitCode == null) { broker.kill(); await new Promise(r => broker.once('exit', r)); }
