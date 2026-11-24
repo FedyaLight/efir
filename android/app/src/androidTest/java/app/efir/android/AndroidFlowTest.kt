@@ -222,12 +222,11 @@ class AndroidFlowTest {
                     "!!document.querySelector('.prompter:not(.playing):not(.ui-hidden)')",
                 ) == true
             }
+            val mirror = "new DOMMatrix(getComputedStyle(document.querySelector('.stage-inner')).transform).a < 0"
+            val expectedMirror = !(js(prompter, mirror) as Boolean)
             tap(prompter, "[data-a=mirror]")
-            until("mirror is applied to reading screen") {
-                js(
-                    prompter,
-                    "new DOMMatrix(getComputedStyle(document.querySelector('.stage-inner')).transform).a < 0",
-                ) == true
+            until("mirror is changed on the reading screen") {
+                js(prompter, mirror) == expectedMirror
             }
             tap(prompter, "[data-a=fs]")
             until("leave native fullscreen") {
@@ -267,14 +266,13 @@ class AndroidFlowTest {
             )
             until("reading view reopens") { views(scenario).size == 2 }
             val reopened = views(scenario).last()
-            until("reading screen restores its mirror profile") {
-                js(
-                    reopened,
-                    "!!document.querySelector('.prompter.has-ctl.has-script') && new DOMMatrix(getComputedStyle(document.querySelector('.stage-inner')).transform).a < 0",
-                ) == true
+            until("reopened screen connects") {
+                js(reopened, "!!document.querySelector('.prompter.has-ctl.has-script')") == true
             }
             assertEquals(screenId, js(reopened, "new URL(location.href).searchParams.get('screen')"))
-
+            until("reading screen restores its mirror profile") {
+                js(reopened, mirror) == expectedMirror
+            }
         }
     }
 
