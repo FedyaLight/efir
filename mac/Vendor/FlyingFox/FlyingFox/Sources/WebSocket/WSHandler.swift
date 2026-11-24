@@ -33,6 +33,15 @@ import Foundation
 
 public protocol WSHandler: Sendable {
     func makeFrames(for client: AsyncThrowingStream<WSFrame, any Error>) async throws -> AsyncStream<WSFrame>
+    func didDisconnect() async
+}
+
+public extension WSHandler {
+    func didDisconnect() async {}
+}
+
+public enum WSUpgradeError: Error {
+    case capacity
 }
 
 /// `MessageFrameWSHandler` manages the websocket protocol by splitting the messages from the incoming frames into a separate stream,

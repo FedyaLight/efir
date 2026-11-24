@@ -31,10 +31,10 @@
 
 import Foundation
 
-struct WSFrameValidator: Sendable {
+public struct WSFrameValidator: Sendable {
 
     // Buffer/Group any continuation frames from AsyncSequence<WSFrame>
-    static func validateFrames<S: AsyncSequence>(from client: S) -> AsyncThrowingCompactMapSequence<S, WSFrame> where S.Element == WSFrame {
+    public static func validateFrames<S: AsyncSequence>(from client: S) -> AsyncThrowingCompactMapSequence<S, WSFrame> where S.Element == WSFrame {
         let buffer = Validator()
         return client.compactMap(buffer.validateFrame)
     }
@@ -42,6 +42,7 @@ struct WSFrameValidator: Sendable {
     private final class Validator: @unchecked Sendable {
 
         private var last: WSFrame?
+        private var fragments = 0
 
         @Sendable
         func validateFrame(_ frame: WSFrame) throws -> WSFrame? {
@@ -64,6 +65,9 @@ struct WSFrameValidator: Sendable {
                 return last
             }
 
+            if last != nil && (frame.opcode == .text || frame.opcode == .binary) {
+                throw Error("Unexpected data frame during continuation")
+            }
             guard frame.fin else {
                 try beginContinuation(frame)
                 return nil
@@ -81,6 +85,7 @@ struct WSFrameValidator: Sendable {
                 throw Error("Unsupport Control Continuation")
             default:
                 last = continuation
+                fragments = 1
             }
         }
 
@@ -88,6 +93,10 @@ struct WSFrameValidator: Sendable {
             guard last != nil else {
                 throw Error("Unexpected Continuation")
             }
+            fragments += 1
+            guard fragments <= 4096,
+                continuation.payload.count <= WSFrameEncoder.maxPayload - last!.payload.count
+            else { throw Error("Message exceeds the fragmentation limit") }
             last!.fin = continuation.fin
             last!.payload.append(continuation.payload)
         }

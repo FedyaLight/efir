@@ -27,22 +27,24 @@ assert.ok(font.headers.get('cache-control').includes('immutable'));
 // Verify actual asset bytes, then slices against the independent local fixture.
 const bytes = new Uint8Array(await font.arrayBuffer());
 assert.deepEqual(bytes, new Uint8Array(await readFile(new URL('../web/vendor/' + fontFile, import.meta.url))));
-if (font.headers.get('accept-ranges') === 'bytes') {
-  const size = bytes.length;
-  for (const [range, start, end] of [
-    ['bytes=0-31', 0, 31],
-    ['bytes=7-', 7, size - 1],
-    ['bytes=-17', size - 17, size - 1],
-  ]) {
-    const partial = await fetch(font.url, { headers: { Range: range } });
-    assert.equal(partial.status, 206);
-    assert.equal(partial.headers.get('content-range'), `bytes ${start}-${end}/${size}`);
-    assert.deepEqual(new Uint8Array(await partial.arrayBuffer()), bytes.slice(start, end + 1));
-  }
-  const invalid = await fetch(font.url, { headers: { Range: `bytes=${size}-` } });
-  assert.equal(invalid.status, 416);
-  assert.equal(invalid.headers.get('content-range'), `bytes */${size}`);
+assert.equal(font.headers.get('accept-ranges'), 'bytes');
+const size = bytes.length;
+for (const [range, start, end] of [
+  ['bytes=0-31', 0, 31],
+  ['bytes=7-', 7, size - 1],
+  ['bytes=-17', size - 17, size - 1],
+]) {
+  const partial = await fetch(font.url, { headers: { Range: range } });
+  assert.equal(partial.status, 206);
+  assert.equal(partial.headers.get('content-range'), `bytes ${start}-${end}/${size}`);
+  assert.deepEqual(new Uint8Array(await partial.arrayBuffer()), bytes.slice(start, end + 1));
 }
+const invalid = await fetch(font.url, { headers: { Range: `bytes=${size}-` } });
+assert.equal(invalid.status, 416);
+assert.equal(invalid.headers.get('content-range'), `bytes */${size}`);
+const ignoredRange = await fetch(font.url, { headers: { Range: 'items=0-31' } });
+assert.equal(ignoredRange.status, 200, 'unknown range units are ignored');
+await ignoredRange.body.cancel();
 async function client(room) {
   const ws = new WebSocket(base.replace(/^http/, 'ws') + '/ws?room=' + room);
   const queue = [];
@@ -73,4 +75,4 @@ try {
   await until(() => a.queue.length === 1);
   assert.equal(a.queue.shift(), large);
 } finally { for (const c of [a, b, other]) c.ws.close(); }
-console.log('PASS HTTP/MIME/cache/HEAD, one shared local session, exact relay, no sender echo, ping/pong, fragmented UTF-8 message');
+console.log('PASS HTTP/MIME/cache/HEAD/Range, one shared local session, exact relay, no sender echo, ping/pong, fragmented UTF-8 message');

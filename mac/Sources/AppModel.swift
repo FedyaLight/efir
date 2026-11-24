@@ -2,6 +2,7 @@ import AppKit
 import FlyingFox
 import FlyingSocks
 import SwiftUI
+import SystemConfiguration
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -9,32 +10,58 @@ final class AppModel: ObservableObject {
     @Published var running = false { didSet { updateActivity() } }
     @Published var status = "Запуск сервера…"
     @Published var statusError = ""
-    @Published var clients = 0 { didSet { updateActivity() } }
+    @Published private(set) var prompterClients = 0 { didSet { updateActivity() } }
     @Published var addresses: [LANAddress] = []
-    @Published var selectedAddress = ""
+    @Published private(set) var selectedAddress = ""
     let room = "LOCAL"
     let speech = NativeSpeech()
     private var windows: [RoleWindow] = []
     private var server: HTTPServer?
     private var serverTask: Task<Void, Error>?
     private var publication: NetService?
-    private var addressTimer: Timer?
+    private var addressStore: SCDynamicStore?
     private var activity: NSObjectProtocol?
     private var sessionActive = false
+    private var clientCountRevision = 0
 
     var publicOrigin: String? {
         selectedAddress.isEmpty ? nil : "http://\(selectedAddress):\(port)"
     }
     var origin: String { publicOrigin ?? "http://localhost:\(port)" }
-    var prompterClients: Int { max(0, clients - windows.count) }
 
     init() {
+        observeNetwork()
         refreshNetwork()
-        addressTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshNetwork() }
-        }
-        addressTimer?.tolerance = 1
         Task { await start() }
+    }
+
+    private final class NetworkObserver {
+        weak var model: AppModel?
+        init(_ model: AppModel) { self.model = model }
+    }
+
+    private func observeNetwork() {
+        let observer = NetworkObserver(self)
+        var context = SCDynamicStoreContext(
+            version: 0, info: Unmanaged.passUnretained(observer).toOpaque(),
+            retain: { pointer in
+                return UnsafeRawPointer(Unmanaged<NetworkObserver>.fromOpaque(pointer).retain().toOpaque())
+            },
+            release: { pointer in
+                Unmanaged<NetworkObserver>.fromOpaque(pointer).release()
+            },
+            copyDescription: nil
+        )
+        guard let store = SCDynamicStoreCreate(nil, "Efir LAN" as CFString, { _, _, info in
+            guard let info else { return }
+            let observer = Unmanaged<NetworkObserver>.fromOpaque(info).takeUnretainedValue()
+            MainActor.assumeIsolated { observer.model?.refreshNetwork() }
+        }, &context) else { return }
+        let patterns = ["State:/Network/Global/IPv4", "State:/Network/Interface/[^/]+/(IPv4|Link)"]
+        guard SCDynamicStoreSetNotificationKeys(store, nil, patterns as CFArray),
+            SCDynamicStoreSetDispatchQueue(store, .main)
+        else { return }
+        addressStore = store
     }
 
     func refreshNetwork() {
@@ -43,7 +70,17 @@ final class AppModel: ObservableObject {
         if !next.contains(where: { $0.address == selectedAddress }) {
             selectedAddress = next.first?.address ?? ""
         }
-        for window in windows { window.updateOrigin(publicOrigin) }
+        updateNetworkBridge()
+    }
+
+    func selectAddress(_ value: String) {
+        guard value != selectedAddress, addresses.contains(where: { $0.address == value }) else { return }
+        selectedAddress = value
+        updateNetworkBridge()
+    }
+
+    private func updateNetworkBridge() {
+        for window in windows { window.updateNetwork(origin: origin, addresses: addresses) }
     }
 
     func start() async {
@@ -53,7 +90,11 @@ final class AppModel: ObservableObject {
             status = "В приложении не найдены файлы web"
             return
         }
-        let hub = RelayHub { [weak self] count in await MainActor.run { self?.clients = count } }
+        let hub = RelayHub { [weak self] revision, external in
+            guard let self, revision > self.clientCountRevision else { return }
+            self.clientCountRevision = revision
+            if self.prompterClients != external { self.prompterClients = external }
+        }
         // Bind through the server itself; a separate probe would race other processes.
         for candidate in 8765...8865 {
             let server = HTTPServer(
@@ -102,7 +143,7 @@ final class AppModel: ObservableObject {
         let service = NetService(
             domain: "local.", type: "_efir._tcp.",
             name: "Эфир — \(Host.current().localizedName ?? "Mac")", port: Int32(port))
-        service.setTXTRecord(NetService.data(fromTXTRecord: ["version": Data("1.2.0".utf8)]))
+        service.setTXTRecord(NetService.data(fromTXTRecord: ["version": Data(SiteHandler.version.utf8)]))
         service.publish()
         publication = service
     }
@@ -113,7 +154,8 @@ final class AppModel: ObservableObject {
             existing.show()
             return
         }
-        let window = RoleWindow(code: room, port: port, publicOrigin: publicOrigin, speech: speech)
+        let window = RoleWindow(code: room, port: port, origin: origin, addresses: addresses, speech: speech)
+        window.onSelectAddress = { [weak self] address in self?.selectAddress(address) }
         window.onSessionActive = { [weak self] active in self?.setSessionActive(active) }
         window.onClose = { [weak self, weak window] in
             self?.windows.removeAll { $0 === window }
@@ -125,7 +167,8 @@ final class AppModel: ObservableObject {
 
     func shutdown() {
         running = false
-        addressTimer?.invalidate()
+        if let addressStore { SCDynamicStoreSetDispatchQueue(addressStore, nil) }
+        addressStore = nil
         speech.stop()
         publication?.stop()
         serverTask?.cancel()
@@ -143,7 +186,7 @@ final class AppModel: ObservableObject {
 
     private func updateActivity() {
         // Allow display sleep, but keep the system awake for a connected reader.
-        let needed = running && (sessionActive || clients > windows.count)
+        let needed = running && (sessionActive || prompterClients > 0)
         if needed && activity == nil {
             activity = ProcessInfo.processInfo.beginActivity(
                 options: [.userInitiated, .idleSystemSleepDisabled],

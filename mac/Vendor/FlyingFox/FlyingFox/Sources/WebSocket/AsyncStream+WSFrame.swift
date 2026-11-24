@@ -36,7 +36,9 @@ extension AsyncThrowingStream<WSFrame, any Error> {
     static func decodingFrames(from bytes: some AsyncBufferedSequence<UInt8>) -> Self {
         AsyncThrowingStream<WSFrame, any Error> {
             do {
-                return try await WSFrameEncoder.decodeFrame(from: bytes)
+                return try await withThrowingTimeout(seconds: 45) {
+                    try await WSFrameEncoder.decodeFrame(from: bytes)
+                }
             } catch SocketError.disconnected, is SequenceTerminationError {
                 return nil
             } catch {

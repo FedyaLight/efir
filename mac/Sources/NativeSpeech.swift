@@ -11,6 +11,7 @@ final class NativeSpeech {
     private var recognizer: SFSpeechRecognizer?
     private weak var webView: WKWebView?
     private var generation = UUID()
+    private var bridgeSession: String?
     private var active = false
     private var hasTap = false
     private var timer: Timer?
@@ -20,9 +21,10 @@ final class NativeSpeech {
     private var lastState = ""
     private var lastMessage = ""
 
-    func start(lang: String, in webView: WKWebView) {
+    func start(lang: String, in webView: WKWebView, bridgeSession: String?) {
         stop()
         self.webView = webView
+        self.bridgeSession = bridgeSession
         lastState = ""
         self.lang = lang
         active = true
@@ -96,13 +98,13 @@ final class NativeSpeech {
                 if let result {
                     self.failures = 0
                     self.lastHeard = Date()
+                    self.lastState = "hearing"
                     self.webView?.callAsyncJavaScript(
-                        "window.efirNative?.onTranscript(text, isFinal)",
+                        "window.efirNative?.onTranscript(text, isFinal, session)",
                         arguments: [
                             "text": result.bestTranscription.formattedString,
-                            "isFinal": result.isFinal,
+                            "isFinal": result.isFinal, "session": self.bridgeSession as Any? ?? NSNull(),
                         ], in: nil, in: .page, completionHandler: nil)
-                    self.state("hearing")
                 }
                 if result?.isFinal == true || error != nil {
                     self.restart(session: session, delay: error == nil ? 0.15 : 1)
@@ -162,7 +164,6 @@ final class NativeSpeech {
 
     func stop(owner: WKWebView? = nil) {
         if let owner, webView !== owner { return }
-        state("off")
         active = false
         generation = UUID()
         recognitionGeneration = UUID()
@@ -179,8 +180,8 @@ final class NativeSpeech {
         lastState = value
         lastMessage = translated
         webView?.callAsyncJavaScript(
-            "window.efirNative?.onState(state, message)",
-            arguments: ["state": value, "message": translated], in: nil, in: .page,
+            "window.efirNative?.onState(state, message, session)",
+            arguments: ["state": value, "message": translated, "session": bridgeSession as Any? ?? NSNull()], in: nil, in: .page,
             completionHandler: nil)
     }
 }

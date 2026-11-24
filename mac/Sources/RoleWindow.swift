@@ -9,14 +9,18 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
     let webView: WKWebView
     var onClose: (() -> Void)?
     var onSessionActive: ((Bool) -> Void)?
+    var onSelectAddress: ((String) -> Void)?
     private let port: Int
     private let speech: NativeSpeech
     private var originForPage: String
+    private var addresses: [LANAddress]
+    private var lastVisible: Bool?
 
-    init(code: String, port: Int, publicOrigin: String?, speech: NativeSpeech) {
+    init(code: String, port: Int, origin: String, addresses: [LANAddress], speech: NativeSpeech) {
         self.port = port
         self.speech = speech
-        originForPage = publicOrigin ?? "http://localhost:\(port)"
+        self.originForPage = origin
+        self.addresses = addresses
         let config = WKWebViewConfiguration()
         config.preferences.isElementFullscreenEnabled = true
         webView = WKWebView(frame: .zero, configuration: config)
@@ -47,14 +51,19 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    private var networkInfo: [String: Any] {
+        ["publicOrigin": originForPage,
+         "addresses": addresses.map { ["name": $0.interface, "address": $0.address] }]
+    }
+
     private func updateBootstrap() {
         let json = String(
-            data: try! JSONSerialization.data(withJSONObject: [
-                "version": 1, "publicOrigin": originForPage, "platform": "macos",
+            data: try! JSONSerialization.data(withJSONObject: networkInfo.merging([
+                "version": 1, "platform": "macos",
                 "deviceName": "Mac", "role": "controller",
                 "uiLanguage": Localization.shared.language,
-                "capabilities": ["speech": true, "fullscreen": true, "sessionAwake": true],
-            ]), encoding: .utf8)!
+                "capabilities": ["speech": true, "fullscreen": true, "sessionAwake": true, "networkSettings": true],
+            ]) { _, value in value }), encoding: .utf8)!
         let scripts = webView.configuration.userContentController
         scripts.removeAllUserScripts()
         scripts.addUserScript(
@@ -64,27 +73,25 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
                 injectionTime: .atDocumentStart, forMainFrameOnly: true))
     }
 
-    func updateOrigin(_ value: String?) {
-        let origin = value ?? "http://localhost:\(port)"
-        guard origin != originForPage else { return }
+    func updateNetwork(origin: String, addresses: [LANAddress]) {
+        guard origin != originForPage || addresses != self.addresses else { return }
+        originForPage = origin
+        self.addresses = addresses
+        updateBootstrap()
         webView.callAsyncJavaScript(
-            "if (window.efirNative) window.efirNative.publicOrigin = origin",
-            arguments: ["origin": origin], in: nil, in: .page
-        ) { [weak self] result in
-            if case .success = result {
-                self?.originForPage = origin
-                self?.updateBootstrap()
-            }
-        }
+            "if (window.efirNative) { Object.assign(window.efirNative, info); window.dispatchEvent(new Event('efirnetwork')); }",
+            arguments: ["info": networkInfo], in: nil, in: .page, completionHandler: nil)
     }
 
-    func updateLanguage() {
+    func updateLanguage(notifyPage: Bool = true) {
         updateBootstrap()
         window.title = l("Эфир · Пульт")
-        webView.callAsyncJavaScript(
-            "window.efirNative?.onLanguage?.(language)",
-            arguments: ["language": Localization.shared.language], in: nil, in: .page,
-            completionHandler: nil)
+        if notifyPage {
+            webView.callAsyncJavaScript(
+                "window.efirNative?.onLanguage?.(language)",
+                arguments: ["language": Localization.shared.language], in: nil, in: .page,
+                completionHandler: nil)
+        }
     }
 
     func userContentController(
@@ -96,13 +103,15 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
             let body = message.body as? [String: Any], let action = body["action"] as? String
         else { return }
         switch action {
-        case "voiceStart": speech.start(lang: body["lang"] as? String ?? "ru-RU", in: webView)
+        case "voiceStart":
+            speech.start(lang: body["lang"] as? String ?? "ru-RU", in: webView, bridgeSession: body["session"] as? String)
         case "voiceStop": speech.stop(owner: webView)
         case "fullscreen": window.toggleFullScreen(nil)
         case "sessionActive": onSessionActive?(body["active"] as? Bool ?? false)
+        case "selectAddress": onSelectAddress?(body["address"] as? String ?? "")
         case "language":
             Localization.shared.select(body["language"] as? String ?? "")
-            updateLanguage()
+            updateLanguage(notifyPage: false)
         default: break
         }
     }
@@ -121,10 +130,18 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
         webView.evaluateJavaScript("window.efirNative?.onFullscreen?.(false)")
     }
     func windowDidChangeOcclusionState(_ notification: Notification) { updateVisibility() }
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { updateVisibility() }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        lastVisible = nil
+        updateVisibility()
+        if window.styleMask.contains(.fullScreen) {
+            webView.evaluateJavaScript("window.efirNative?.onFullscreen?.(true)")
+        }
+    }
     private func updateVisibility() {
         let visible =
             window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
+        guard lastVisible != visible else { return }
+        lastVisible = visible
         webView.evaluateJavaScript("window.efirNative?.onVisible?.(\(visible ? "true" : "false"))")
     }
 

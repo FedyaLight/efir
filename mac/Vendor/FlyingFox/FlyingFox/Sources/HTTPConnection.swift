@@ -87,13 +87,33 @@ struct HTTPConnection: Sendable {
         // Reuse the connection-wide buffered stream so any bytes already
         // pulled past the upgrade request remain available to the WS framer.
         let client = AsyncThrowingStream.decodingFrames(from: bytes)
-        let server = try await handler.makeFrames(for: client)
-        try await socket.write(response)
-        logger.logSwitchProtocol(self, to: "websocket")
-        await requests.complete()
-        for await frame in server {
-            try await socket.write(WSFrameEncoder.encodeFrame(frame))
+        let server: AsyncStream<WSFrame>
+        do {
+            server = try await handler.makeFrames(for: client)
+        } catch WSUpgradeError.capacity {
+            await requests.complete()
+            let rejection = HTTPResponse(statusCode: .serviceUnavailable, headers: HTTPHeaders([
+                .contentLength: "0", .connection: "close",
+            ]))
+            try await withThrowingTimeout(seconds: 5) {
+                try await socket.write(HTTPEncoder.encodeResponseHeader(rejection))
+            }
+            return
         }
+        do {
+            try await withThrowingTimeout(seconds: 5) { try await socket.write(response) }
+            logger.logSwitchProtocol(self, to: "websocket")
+            await requests.complete()
+            for await frame in server {
+                let data = WSFrameEncoder.encodeFrame(frame)
+                try await withThrowingTimeout(seconds: 5) { try await socket.write(data) }
+                if frame.opcode == .close { break }
+            }
+        } catch {
+            await handler.didDisconnect()
+            throw error
+        }
+        await handler.didDisconnect()
     }
 
     func close() throws {

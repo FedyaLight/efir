@@ -56,6 +56,8 @@ import Foundation
 ///
 struct WSFrameEncoder {
 
+    static let maxPayload = 16 * 1024 * 1024
+
     static func encodeFrame(_ frame: WSFrame) -> Data {
         var data = Data([encodeFrame0(frame)])
         data.append(
@@ -70,6 +72,7 @@ struct WSFrameEncoder {
     static func decodeFrame(from bytes: some AsyncBufferedSequence<UInt8>) async throws -> WSFrame {
         var frame = try await decodeFrame(from: bytes.take())
         let (length, mask) = try await decodeLengthMask(from: bytes)
+        guard length <= maxPayload else { throw Error("Frame exceeds the payload limit") }
         frame.payload = try await decodePayload(from: bytes, length: length, mask: mask)
         return frame
     }

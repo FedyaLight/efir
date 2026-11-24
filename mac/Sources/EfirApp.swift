@@ -92,9 +92,9 @@ struct ConnectionSettingsView: View {
                         )
                     ).foregroundStyle(.orange)
                 } else {
-                    Picker(l("Адрес для телефона"), selection: $model.selectedAddress) {
+                    Picker(l("Адрес для телефона"), selection: Binding(get: { model.selectedAddress }, set: model.selectAddress)) {
                         ForEach(model.addresses) { item in Text(item.label).tag(item.address) }
-                    }.onChange(of: model.selectedAddress) { _, _ in model.refreshNetwork() }
+                    }
                 }
                 Text(model.origin).font(.system(.title3, design: .monospaced)).textSelection(
                     .enabled)
@@ -133,12 +133,15 @@ struct ConnectionSettingsView: View {
 struct QRCard: View {
     let title: String
     let url: String
-    private var image: NSImage? {
+    private static let context = CIContext()
+    @State private var image: NSImage?
+
+    private func makeImage() -> NSImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(url.utf8)
         filter.correctionLevel = "M"
         guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),
-            let cg = CIContext().createCGImage(output, from: output.extent)
+            let cg = Self.context.createCGImage(output, from: output.extent)
         else { return nil }
         return NSImage(cgImage: cg, size: NSSize(width: 180, height: 180))
     }
@@ -155,5 +158,6 @@ struct QRCard: View {
                 NSPasteboard.general.setString(url, forType: .string)
             }
         }
+        .onChange(of: url, initial: true) { _, _ in image = makeImage() }
     }
 }
