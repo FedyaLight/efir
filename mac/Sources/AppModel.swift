@@ -16,6 +16,8 @@ final class AppModel: ObservableObject {
     let room = "LOCAL"
     let speech = NativeSpeech()
     private var windows: [RoleWindow] = []
+    private var quitCompletion: (() -> Void)?
+    private var preferredAddress = UserDefaults.standard.string(forKey: "efir.lanAddress")
     private var server: HTTPServer?
     private var serverTask: Task<Void, Error>?
     private var publication: NetService?
@@ -52,11 +54,14 @@ final class AppModel: ObservableObject {
             },
             copyDescription: nil
         )
-        guard let store = SCDynamicStoreCreate(nil, "Efir LAN" as CFString, { _, _, info in
-            guard let info else { return }
-            let observer = Unmanaged<NetworkObserver>.fromOpaque(info).takeUnretainedValue()
-            MainActor.assumeIsolated { observer.model?.refreshNetwork() }
-        }, &context) else { return }
+        let retainedStore = withExtendedLifetime(observer) {
+            SCDynamicStoreCreate(nil, "Efir LAN" as CFString, { _, _, info in
+                guard let info else { return }
+                let observer = Unmanaged<NetworkObserver>.fromOpaque(info).takeUnretainedValue()
+                MainActor.assumeIsolated { observer.model?.refreshNetwork() }
+            }, &context)
+        }
+        guard let store = retainedStore else { return }
         let patterns = ["State:/Network/Global/IPv4", "State:/Network/Interface/[^/]+/(IPv4|Link)"]
         guard SCDynamicStoreSetNotificationKeys(store, nil, patterns as CFArray),
             SCDynamicStoreSetDispatchQueue(store, .main)
@@ -67,14 +72,18 @@ final class AppModel: ObservableObject {
     func refreshNetwork() {
         let next = LANAddress.available()
         if addresses != next { addresses = next }
-        if !next.contains(where: { $0.address == selectedAddress }) {
+        if let preferredAddress, next.contains(where: { $0.address == preferredAddress }) {
+            if selectedAddress != preferredAddress { selectedAddress = preferredAddress }
+        } else if !next.contains(where: { $0.address == selectedAddress }) {
             selectedAddress = next.first?.address ?? ""
         }
         updateNetworkBridge()
     }
 
     func selectAddress(_ value: String) {
-        guard value != selectedAddress, addresses.contains(where: { $0.address == value }) else { return }
+        guard value != preferredAddress, addresses.contains(where: { $0.address == value }) else { return }
+        preferredAddress = value
+        UserDefaults.standard.set(value, forKey: "efir.lanAddress")
         selectedAddress = value
         updateNetworkBridge()
     }
@@ -149,7 +158,7 @@ final class AppModel: ObservableObject {
     }
 
     func openController() {
-        guard running else { return }
+        guard running, quitCompletion == nil else { return }
         if let existing = windows.first {
             existing.show()
             return
@@ -160,9 +169,19 @@ final class AppModel: ObservableObject {
         window.onClose = { [weak self, weak window] in
             self?.windows.removeAll { $0 === window }
             self?.setSessionActive(false)
+            if self?.windows.isEmpty == true { self?.quitCompletion?() }
         }
         windows.append(window)
         window.show()
+    }
+
+    func prepareToQuit(_ completion: @escaping () -> Void) -> Bool {
+        guard !windows.isEmpty else { return false }
+        if quitCompletion == nil {
+            quitCompletion = completion
+            for window in windows { window.requestClose() }
+        }
+        return true
     }
 
     func shutdown() {

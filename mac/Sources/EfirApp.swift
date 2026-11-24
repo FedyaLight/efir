@@ -22,6 +22,9 @@ struct EfirApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        model.prepareToQuit { sender.reply(toApplicationShouldTerminate: true) } ? .terminateLater : .terminateNow
+    }
     func applicationWillTerminate(_ notification: Notification) { model.shutdown() }
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Open the controller at launch; network settings stay closed.

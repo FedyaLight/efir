@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
     private var generation = 0
     private var pendingLanguage = "ru-RU"
     private var voiceSession: String? = null
+    private var voiceRequested = false
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var exportBytes: ByteArray? = null
     private var exportType = "text/plain"
@@ -70,8 +71,10 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ScanContract()) { result -> result.contents?.let { connect(it) } }
     private val microphone =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
-            if (allowed && resumed && controller != null) speech.start(pendingLanguage)
-            else voiceEvent("denied", strings.t("Нет доступа к микрофону"), false)
+            if (allowed && resumed && controller != null) {
+                voiceRequested = true
+                speech.start(pendingLanguage)
+            } else voiceEvent("denied", strings.t("Нет доступа к микрофону"), false)
         }
     private val notification =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { startLocal(true) }
@@ -183,6 +186,7 @@ class MainActivity : ComponentActivity() {
         closeViews()
         releaseService()
         speech.stop()
+        voiceRequested = false
         fullscreen = false
         awakeRequested = false
         updateScreen()
@@ -572,6 +576,7 @@ class MainActivity : ComponentActivity() {
             "showPrompter" -> if (role == "controller") showLocalReader(view)
             "voiceStop" ->
                 if (role == "controller") {
+                    voiceRequested = false
                     speech.stop()
                 }
             "voiceModel" ->
@@ -580,6 +585,7 @@ class MainActivity : ComponentActivity() {
                 if (role == "controller" && resumed) {
                     pendingLanguage = message.optString("lang", "ru-RU")
                     voiceSession = message.optString("session").takeIf { it.isNotEmpty() }
+                    voiceRequested = true
                     if (
                         !speech.supported ||
                             checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
@@ -676,6 +682,7 @@ class MainActivity : ComponentActivity() {
     private fun visible(view: WebView, active: Boolean) = signal(view, "onVisible", active)
 
     private fun voiceEvent(kind: String, text: String?, final: Boolean) {
+        if (kind == "off" || kind == "denied" || kind == "unsupported") voiceRequested = false
         val session = voiceSession
         val source = controller
         main.post {
@@ -735,7 +742,7 @@ class MainActivity : ComponentActivity() {
         resumed = false
         bonjour.stopDiscovery()
         speech.stop()
-        voiceEvent("off", null, false)
+        if (voiceRequested) voiceEvent("off", null, false)
         listOfNotNull(controller, prompter).forEach {
             visible(it, false)
             it.onPause()

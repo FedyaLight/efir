@@ -439,7 +439,7 @@ export function mountController(root, code) {
       if (!sessionEstablished && offered?.sid === sid) {
         restoreSession(stage, engine, offered);
         tracker.setPosition(engine.voiceIdx);
-        if (engine.mode === 'voice' && settings.voiceDevice === 'controller') tracker.start(settings.voiceLang);
+        if (engine.mode === 'voice') startControllerVoice();
       }
       sessionEstablished = true;
       // Send a new reader the settings, script and session.
@@ -534,8 +534,12 @@ export function mountController(root, code) {
       engine.cd = m.cd;
       if (m.mode !== engine.mode) {
         engine.mode = m.mode;
-        if (localMode && nativeVoice && m.mode === 'voice' && !tracker.active) { tracker.setPosition(m.voiceIdx); tracker.start(settings.voiceLang); }
-        if (m.mode !== 'voice') stage.setRead(-1);
+        if (localMode && nativeVoice && m.mode === 'voice') {
+          engine.voiceIdx = m.voiceIdx;
+          tracker.setPosition(engine.voiceIdx);
+          startControllerVoice();
+        }
+        if (m.mode !== 'voice') { tracker.stop(); stage.setRead(-1); }
       }
     }
     if (engine.mode === 'voice' && settings.voiceDevice === 'prompter') engine.voiceIdx = m.voiceIdx;
@@ -661,6 +665,11 @@ export function mountController(root, code) {
     $('.voice-transcript').textContent = next ? t('Распознано: «{text}»', { text: next }) : '';
   }
 
+  const speechForeground = platform.has('speechForeground');
+  function startControllerVoice() {
+    if (settings.voiceDevice === 'controller' && (!speechForeground || platform.visible)) tracker.start(settings.voiceLang);
+  }
+
   function voiceToggle() {
     const on = engine.mode !== 'voice';
     sessionEstablished = true;
@@ -675,7 +684,7 @@ export function mountController(root, code) {
       engine.mode = 'voice';
       engine.voiceIdx = stage.wordAt(engine.pos);
       tracker.setPosition(engine.voiceIdx);
-      if (settings.voiceDevice === 'controller') tracker.start(settings.voiceLang);
+      startControllerVoice();
     } else {
       engine.mode = 'scroll';
       engine.target = null;
@@ -688,7 +697,6 @@ export function mountController(root, code) {
     if (on && !room.peersOf('prompter').length && settings.voiceDevice === 'prompter') {
       toast(t('Суфлёр не подключён — слушаю микрофон пульта'));
       set('voiceDevice', 'controller');
-      if (voiceSupported) tracker.start(settings.voiceLang);
     }
     updateTransport(true);
   }
@@ -986,12 +994,22 @@ export function mountController(root, code) {
     $('.ed-stats').textContent = t('{words} · {characters} · ≈ {spoken} вслух · {duration} на скорости {speed}', { words: countLabel(wc, 'words'), characters: countLabel(cur.text.length, 'characters'), spoken: fmt(wc / 130 * 60), duration: fmt(dur), speed: engine.speed.toFixed(1) });
   }
   let edTimer = 0, saveTimer = 0;
+  function flushEdits() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; store.saveScripts(scripts); }
+    if (saveSetTimer) flushSettings();
+  }
   const onVisibility = () => {
+    if (speechForeground) {
+      if (!platform.visible && tracker.active) tracker.stop();
+      else if (platform.visible && engine.mode === 'voice') {
+        tracker.setPosition(engine.voiceIdx);
+        startControllerVoice();
+      }
+    }
     if (platform.visible && el.dataset.view === 'live') fitPreview();
     else {
+      flushEdits();
       views.setActive(false); refreshPrimaryPreview();
-      if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; store.saveScripts(scripts); }
-      if (saveSetTimer) flushSettings();
     }
   };
   platform.events.addEventListener('visible', onVisibility);
@@ -1070,12 +1088,13 @@ export function mountController(root, code) {
     commitSettings(LAYOUT_KEYS.includes(k));
     if (k === 'voiceDevice' && engine.mode === 'voice' && prev !== v) {
       tracker.stop();
-      if (v === 'controller') tracker.start(settings.voiceLang);
+      startControllerVoice();
     }
     if (k === 'voiceLang' && engine.mode === 'voice' && settings.voiceDevice === 'controller') {
-      tracker.stop(); tracker.start(v);
+      tracker.stop(); startControllerVoice();
     }
-    refreshControls(k === 'theme' ? null : new Set(k === 'sidePad' ? [k, 'leftPad', 'rightPad'] : ['textColor', 'bgColor', 'accentColor', 'noteColor'].includes(k) ? [k, 'theme'] : [k]));
+    const control = k === 'mirrorH' || k === 'mirrorV' ? 'orient' : k;
+    refreshControls(k === 'theme' ? null : new Set(k === 'sidePad' ? [k, 'leftPad', 'rightPad'] : ['textColor', 'bgColor', 'accentColor', 'noteColor'].includes(k) ? [k, 'theme'] : [control]));
   }
 
   function renderSettings() {
@@ -1339,21 +1358,20 @@ export function mountController(root, code) {
 
   return {
     destroy() {
+      flushEdits();
       releaseLanguage(); releaseTranslation();
       window.removeEventListener('efirnetwork', onNetwork);
       views.destroy(); frames.destroy(); stage.destroy();
       previewObserver.disconnect(); trackObserver.disconnect();
       clearInterval(freshnessTimer);
       clearTimeout(resyncTimer);
-      clearTimeout(edTimer); clearTimeout(saveTimer);
+      clearTimeout(edTimer);
       clearTimeout(seekTimer); clearTimeout(sendSetTimer);
-      if (saveSetTimer) flushSettings();
 
       platform.events.removeEventListener('visible', onVisibility);
       remotes.destroy();
       tracker.stop();
       platform.send('sessionActive', { active: false });
-      store.saveScripts(scripts);
       lanHelp.destroy();
       room.destroy();
       closeModals();

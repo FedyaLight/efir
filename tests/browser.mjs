@@ -18,7 +18,7 @@ async function context(native = false, locale = 'ru-RU') {
   if (native) await c.addInitScript(() => {
     window.nativeMessages = [];
     window.efirNative = { version: 1, platform: 'linux', deviceName: 'Компьютер', role: 'controller',
-      capabilities: { speech: true, fullscreen: true, sessionAwake: true }, postMessage: message => window.nativeMessages.push(message) };
+      capabilities: { speech: true, speechForeground: true, fullscreen: true, sessionAwake: true, showPrompter: true }, postMessage: message => window.nativeMessages.push(message) };
   });
   c.on('page', p => p.on('pageerror', e => errors.push(e.message)));
   return c;
@@ -75,7 +75,17 @@ try {
   await waitFor(async () => await phone.locator('.text').evaluate(el => getComputedStyle(el).fontSize) === '44px', 'settings sync');
   await controller.locator('[data-g="screen"]').evaluate(el => el.open = true);
   await controller.locator('[data-k="countdown"] [data-v="0"]').click();
-  await controller.locator('[data-k="orient"] [data-v="1-0"]').click();
+  const mirror = controller.locator('[data-a="mirror"]');
+  const orientation = controller.locator('[data-k="orient"] .on');
+  await controller.locator('[data-a="mirror"]:visible').first().click();
+  assert.deepEqual(await mirror.evaluateAll(buttons => buttons.map(b => [b.classList.contains('on'), b.getAttribute('aria-pressed')])),
+    (await mirror.all()).map(() => [true, 'true']));
+  assert.equal(await orientation.getAttribute('data-v'), '1-0');
+  await controller.keyboard.press('m');
+  assert.deepEqual(await mirror.evaluateAll(buttons => buttons.map(b => [b.classList.contains('on'), b.getAttribute('aria-pressed')])),
+    (await mirror.all()).map(() => [false, 'false']));
+  assert.equal(await orientation.getAttribute('data-v'), '0-0');
+  await controller.keyboard.press('m');
   await waitFor(async () => await phone.locator('.stage-inner').evaluate(el => getComputedStyle(el).transform.includes('-1')), 'mirror sync');
   // The preview uses the phone's exact CSS viewport dimensions.
   const dimensions = async p => p.locator('.stage').evaluate(el => [el.offsetWidth, el.offsetHeight]);
@@ -146,7 +156,16 @@ try {
   // Native transcripts use the shared matcher and move the remote reader.
   await controller.locator('[data-a="start"]').click();
   await new Promise(r => setTimeout(r, 800));
-  await controller.locator('[data-a="voice"]').click();
+  const hiddenStarts = await controller.evaluate(() => {
+    const starts = () => window.nativeMessages.filter(m => m.action === 'voiceStart').length;
+    const before = starts();
+    window.efirNative.onVisible(false);
+    document.querySelector('[data-a="voice"]').click();
+    const hidden = starts() - before;
+    window.efirNative.onVisible(true);
+    return hidden;
+  });
+  assert.equal(hiddenStarts, 0, 'voice mode cannot start the native microphone while the window is hidden');
   await waitFor(async () => controller.evaluate(() => window.nativeMessages.some(m => m.action === 'voiceStart')), 'native voice start');
   const hearingPackets = () => sent.filter(packet => packet.c === 'voiceState' && packet.state === 'hearing').length;
   const beforeHearing = hearingPackets();
@@ -156,6 +175,18 @@ try {
   await waitFor(async () => await phone.locator('.stage').evaluate(el => el.classList.contains('voice-live')), 'native hearing reaches phone');
   await waitFor(async () => await phone.locator('.w.now').getAttribute('data-i') === '6', 'native word match reaches phone');
   assert.equal(hearingPackets() - beforeHearing, 1, 'partial transcripts produce a single hearing transition');
+  const resumedVoice = await controller.evaluate(() => {
+    const starts = () => window.nativeMessages.filter(m => m.action === 'voiceStart');
+    const previous = starts().at(-1).session;
+    const start = window.nativeMessages.length;
+    window.efirNative.onVisible(false);
+    window.efirNative.onVisible(true);
+    const session = starts().at(-1).session;
+    window.efirNative.onState('off', '', previous);
+    return { previous, session, actions: window.nativeMessages.slice(start).map(m => m.action) };
+  });
+  assert.notEqual(resumedVoice.session, resumedVoice.previous, 'restoring the window starts a new voice session');
+  assert.deepEqual(resumedVoice.actions.filter(a => a.startsWith('voice')), ['voiceStop', 'voiceStart']);
   await controller.evaluate(() => window.efirNative.onTranscript('Сегодня мы читаем сценарий проверяем голос скорость положение экрана', true));
   await waitFor(async () => await phone.locator('.w.now').getAttribute('data-i') === '15', 'native voice advances');
   await controller.evaluate(() => window.efirNative.onTranscript('Добрый день это проверка текста для суфлёра', true));
@@ -318,6 +349,25 @@ try {
     await controller.evaluate(text => window.efirNative.onTranscript(text, true), first);
     await waitFor(async () => (await android.locator('.w.now').textContent()) === word1, 'voice returns in ' + lang);
   }
+  // Run input and the shell's shutdown call in the same JS turn, then let the
+  // renderer go away before reopening the controller from its saved state.
+  await controller.evaluate(() => {
+    for (const [selector, value] of [['[data-k="fontSize"] input', '53'],
+      ['.ed-title', 'Немедленное закрытие'], ['.ed-text', 'Последняя правка перед выходом.']]) {
+      const input = document.querySelector(selector);
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    window.efirNative.onClose();
+  });
+  await android.locator('.prompter:not(.has-ctl)').waitFor({ timeout: 2500 });
+  await controller.close();
+  const reopened = await mc.newPage();
+  await reopened.goto(base + '/#/c/LOCAL');
+  await reopened.locator('.ctl.has-prompter').waitFor();
+  assert.equal(await reopened.locator('[data-k="fontSize"] input').inputValue(), '53');
+  assert.equal(await reopened.locator('.ed-title').inputValue(), 'Немедленное закрытие');
+  assert.equal(await reopened.locator('.ed-text').inputValue(), 'Последняя правка перед выходом.');
   assert.deepEqual(external, [], 'offline external requests');
   assert.deepEqual(errors, [], 'page errors');
   console.log(JSON.stringify({ result: 'PASS', previewMaxErrorPx: maxError, offlineExternalRequests: external.length, checked: ['script', 'settings', 'tap playback and paused controls', 'quick mirror', 'mirror', 'sections', 'fresh prompter resumes playback', 'reload both roles', 'network loss reconnect', 'native transcript forwarding and rereading', 'profiles', 'backup download/import and corrupt file rejection', 'touch lock', 'readiness', 'HTTP wake video and automatic resume', 'system wake lock release and API denial fallback', 'platform contract without WebKit and Android adapter acknowledgements', 'six UI languages during playback and RTL', 'system language and persisted preference', 'localized editor insertion', 'Chinese/Hindi/Arabic voice matching and rereading'] }));

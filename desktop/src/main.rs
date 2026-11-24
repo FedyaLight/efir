@@ -9,17 +9,14 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex, OnceLock,
-    },
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
     webview::DownloadEvent,
-    Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    Manager, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
 #[derive(Default, Serialize, Deserialize)]
@@ -28,15 +25,25 @@ struct Preferences {
     address: String,
     models: HashMap<String, PathBuf>,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ExitPhase {
+    Running,
+    Flushing,
+    Ready,
+}
+struct Lifecycle {
+    visible: bool,
+    speech: Speech,
+    exit: ExitPhase,
+}
 struct State {
     port: u16,
     addresses: Mutex<Vec<Address>>,
-    visible: AtomicBool,
+    lifecycle: Mutex<Lifecycle>,
     prefs: Mutex<Preferences>,
     path: PathBuf,
     root: PathBuf,
     bonjour: Mutex<Option<Bonjour>>,
-    speech: Mutex<Speech>,
 }
 impl State {
     fn save(&self) {
@@ -80,16 +87,46 @@ fn translate(state: &State, source: &str) -> String {
 fn show(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
+        let _ = w.unminimize();
         let _ = w.set_focus();
         report_visibility(app, &w, true);
     }
 }
 fn report_visibility(app: &tauri::AppHandle, window: &WebviewWindow, active: bool) {
     if let Some(state) = app.try_state::<State>() {
-        if state.visible.swap(active, Ordering::Relaxed) != active {
-            js(window, "active => window.efirNative?.onVisible?.(active)", json!(active));
-        }
+        let mut lifecycle = state.lifecycle.lock().unwrap();
+        if lifecycle.exit != ExitPhase::Running || lifecycle.visible == active { return; }
+        lifecycle.visible = active;
+        if !active { lifecycle.speech.stop(); }
+        js(window, "active => { if (window.efirNative) { window.efirNative.visible = active; window.efirNative.onVisible?.(active); } }", json!(active));
     }
+}
+
+fn request_exit(app: &tauri::AppHandle, code: i32, api: tauri::ExitRequestApi) {
+    let Some(window) = app.get_webview_window("main") else { return; };
+    let state = app.state::<State>();
+    {
+        let mut lifecycle = state.lifecycle.lock().unwrap();
+        if lifecycle.exit == ExitPhase::Ready { return; }
+        api.prevent_exit();
+        if lifecycle.exit == ExitPhase::Flushing { return; }
+        lifecycle.exit = ExitPhase::Flushing;
+        lifecycle.speech.stop();
+    }
+    let (done, mut flushed) = tokio::sync::mpsc::channel(1);
+    let evaluation = window.eval_with_callback("window.efirNative?.onClose?.(); true", move |_| {
+        let _ = done.try_send(());
+    });
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        // A hung or not-yet-loaded renderer may never invoke the callback.
+        // An ordinary exit proceeds as soon as the callback arrives.
+        if evaluation.is_ok() {
+            let _ = tokio::time::timeout(Duration::from_secs(3), flushed.recv()).await;
+        }
+        app.state::<State>().lifecycle.lock().unwrap().exit = ExitPhase::Ready;
+        app.exit(code);
+    });
 }
 
 fn update_network(app: &tauri::AppHandle, list: Vec<Address>) {
@@ -141,8 +178,9 @@ async fn native(
     match message["action"].as_str().unwrap_or("") {
         "bootstrap" => {
             let language = state.prefs.lock().unwrap().language.clone();
+            let visible = state.lifecycle.lock().unwrap().visible;
             return Ok(
-                json!({"uiLanguage":language,"publicOrigin":state.origin(),"addresses":*state.addresses.lock().unwrap()}),
+                json!({"uiLanguage":language,"publicOrigin":state.origin(),"addresses":*state.addresses.lock().unwrap(),"visible":visible}),
             );
         }
         "fullscreen" => {
@@ -180,7 +218,9 @@ async fn native(
             notify_network(&app, &state);
         }
         "voiceStop" => {
-            state.speech.lock().unwrap().stop();
+            let handle = app.clone();
+            app.run_on_main_thread(move || handle.state::<State>().lifecycle.lock().unwrap().speech.stop())
+                .map_err(|e| e.to_string())?;
         }
         "voiceModel" => {
             let lang = message["lang"].as_str().unwrap_or("ru-RU").to_string();
@@ -211,48 +251,53 @@ async fn native(
             }
         }
         "voiceStart" => {
-            if !state.visible.load(Ordering::Relaxed) {
-                return Ok(Value::Null);
-            }
-            let lang = message["lang"].as_str().unwrap_or("ru-RU").to_string();
-            let model = state.prefs.lock().unwrap().models.get(&lang).cloned();
-            let session = message["session"].as_str().map(str::to_owned);
-            if let Some(model) = model {
-                let window = window.clone();
-                let app = app.clone();
-                let emit: SpeechEvent = Arc::new(move |kind, text, is_final| {
-                    if kind == "transcript" {
-                        js(
-                            &window,
-                            "v => window.efirNative?.onTranscript?.(v.text,v.final,v.session)",
-                            json!({"text":text,"final":is_final,"session":session}),
-                        );
-                    } else {
-                        js(
-                            &window,
-                            "v => window.efirNative?.onState?.(v.state,v.message,v.session)",
-                            json!({"state":kind,"message":translate(&app.state::<State>(),text.unwrap_or("")),"session":session}),
-                        );
-                    }
-                });
-                state
-                    .speech
-                    .lock()
-                    .unwrap()
-                    .start(model, state.root.join("speech"), emit);
-            } else {
-                state.speech.lock().unwrap().stop();
-                js(
-                    &window,
-                    "v => window.efirNative?.onState?.('unsupported',v.message,v.session)",
-                    json!({"session":session,"message":translate(&state,"Выберите офлайн-модель Vosk для языка речи через кнопку в настройках голоса.")}),
-                );
-            }
+            let handle = app.clone();
+            app.run_on_main_thread(move || start_voice(&window, &handle, message))
+                .map_err(|e| e.to_string())?;
         }
         "sessionActive" => {} // The server tracks clients even with the window closed.
         _ => return Err("Unknown action".into()),
     }
     Ok(Value::Null)
+}
+
+fn start_voice(window: &WebviewWindow, app: &tauri::AppHandle, message: Value) {
+    let state = app.state::<State>();
+    let mut lifecycle = state.lifecycle.lock().unwrap();
+    let session = message["session"].as_str().map(str::to_owned);
+    if !lifecycle.visible || lifecycle.exit != ExitPhase::Running {
+        js(window, "session => window.efirNative?.onState?.('off','',session)", json!(session));
+        return;
+    }
+    let lang = message["lang"].as_str().unwrap_or("ru-RU");
+    let model = state.prefs.lock().unwrap().models.get(lang).cloned();
+    if let Some(model) = model {
+        let window = window.clone();
+        let app = app.clone();
+        let emit: SpeechEvent = Arc::new(move |kind, text, is_final| {
+            if kind == "transcript" {
+                js(
+                    &window,
+                    "v => window.efirNative?.onTranscript?.(v.text,v.final,v.session)",
+                    json!({"text":text,"final":is_final,"session":session}),
+                );
+            } else {
+                js(
+                    &window,
+                    "v => window.efirNative?.onState?.(v.state,v.message,v.session)",
+                    json!({"state":kind,"message":translate(&app.state::<State>(),text.unwrap_or("")),"session":session}),
+                );
+            }
+        });
+        lifecycle.speech.start(model, state.root.join("speech"), emit);
+    } else {
+        lifecycle.speech.stop();
+        js(
+            window,
+            "v => window.efirNative?.onState?.('unsupported',v.message,v.session)",
+            json!({"session":session,"message":translate(&state,"Выберите офлайн-модель Vosk для языка речи через кнопку в настройках голоса.")}),
+        );
+    }
 }
 fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<State>();
@@ -304,16 +349,16 @@ fn main() {
         let list=addresses();
         if !list.iter().any(|a|a.address==prefs.address) { prefs.address=list.first().map(|a|a.address.clone()).unwrap_or_default(); }
         let mut bonjour=Bonjour::new().ok(); if let Some(b)=bonjour.as_mut() { let _=b.publish(&prefs.address,port); }
-        let bootstrap=json!({"version":1,"platform":std::env::consts::OS,"role":"controller","deviceName":if cfg!(target_os="windows"){"Windows"}else{"Linux"},"uiLanguage":prefs.language,"publicOrigin":format!("http://{}:{port}",if prefs.address.is_empty(){"localhost"}else{&prefs.address}),"addresses":list,"capabilities":{"speech":true,"speechModels":true,"fullscreen":true,"sessionAwake":true,"networkSettings":true}});
+        let bootstrap=json!({"version":1,"platform":std::env::consts::OS,"role":"controller","deviceName":if cfg!(target_os="windows"){"Windows"}else{"Linux"},"uiLanguage":prefs.language,"publicOrigin":format!("http://{}:{port}",if prefs.address.is_empty(){"localhost"}else{&prefs.address}),"addresses":list,"capabilities":{"speech":true,"speechModels":true,"speechForeground":true,"fullscreen":true,"sessionAwake":true,"networkSettings":true}});
         app.manage(State {
-            port, addresses: Mutex::new(list), visible: AtomicBool::new(true),
+            port, addresses: Mutex::new(list),
             prefs: Mutex::new(prefs), path, root, bonjour: Mutex::new(bonjour),
-            speech: Mutex::new(Speech::default()),
+            lifecycle: Mutex::new(Lifecycle { visible: true, speech: Speech::default(), exit: ExitPhase::Running }),
         });
         tauri::async_runtime::spawn(async move { if let Err(e)=axum::serve(listener,router.into_make_service_with_connect_info::<std::net::SocketAddr>()).await { eprintln!("Efir server: {e}"); } });
         let window=WebviewWindowBuilder::new(app,"main",WebviewUrl::External(format!("http://localhost:{port}/#/c/LOCAL").parse()?))
             .title("Efir").inner_size(1320.,820.).min_inner_size(680.,500.)
-            .initialization_script(format!("if (location.origin === 'http://localhost:{port}') {{ window.efirNative={bootstrap};let voiceQueue=Promise.resolve(); const send=message=>window.__TAURI_INTERNALS__.invoke('native',{{message}}).catch(console.error); window.efirNative.postMessage=message=>['voiceStart','voiceStop'].includes(message.action)?(voiceQueue=voiceQueue.then(()=>send(message))):send(message);window.efirNative.ready=window.efirNative.postMessage({{action:'bootstrap'}}).then(info=>{{if(info)Object.assign(window.efirNative,info);}}); }}"))
+            .initialization_script(format!("if (location.origin === 'http://localhost:{port}') {{ window.efirNative={bootstrap};let voiceQueue=Promise.resolve(); const send=message=>window.__TAURI_INTERNALS__.invoke('native',{{message}}).catch(console.error); window.efirNative.postMessage=message=>['voiceStart','voiceStop'].includes(message.action)?(voiceQueue=voiceQueue.then(()=>send(message))):send(message);window.efirNative.ready=window.efirNative.postMessage({{action:'bootstrap'}}).then(info=>{{if(info){{const visible=window.efirNative.visible ?? info.visible;Object.assign(window.efirNative,info,{{visible}});window.efirNative.onVisible?.(visible);}}}}); }}"))
             .on_navigation(move |url|url.scheme()=="http" && url.host_str()==Some("localhost") && url.port()==Some(port))
             .on_download(|_,event| { if let DownloadEvent::Requested {destination,..}=event { let name=destination.file_name().unwrap_or_default().to_string_lossy().into_owned();if let Some(path)=rfd::FileDialog::new().set_file_name(name).save_file(){*destination=path;}else{return false;} }true })
             .build()?;
@@ -322,8 +367,6 @@ fn main() {
             WindowEvent::CloseRequested {api,..} => {
                 api.prevent_close();
                 report_visibility(&app_for_close, &closed, false);
-                app_for_close.state::<State>().speech.lock().unwrap().stop();
-                js(&closed,"() => window.efirNative?.onState?.('off')",Value::Null);
                 let _=closed.hide();
             }
             WindowEvent::Resized(_) | WindowEvent::Focused(_) => {
@@ -360,5 +403,9 @@ fn main() {
             }
         });
         Ok(())
-    }).run(tauri::generate_context!()).expect("Efir startup");
+    }).build(tauri::generate_context!()).expect("Efir startup").run(|app, event| {
+        if let RunEvent::ExitRequested { code, api, .. } = event {
+            request_exit(app, code.unwrap_or(0), api);
+        }
+    });
 }

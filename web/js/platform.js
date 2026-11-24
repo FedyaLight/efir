@@ -3,10 +3,10 @@
 const legacy = window.webkit?.messageHandlers?.efir;
 const host = () => window.efirNative || {};
 let nativeFullscreen = false;
-let foreground = true;
+let foreground = host().visible !== false;
 const events = new EventTarget();
 const fullscreenActive = () => nativeFullscreen || !!(document.fullscreenElement || document.webkitFullscreenElement);
-let visible = !document.hidden, fullscreen = fullscreenActive();
+let visible = foreground && !document.hidden, fullscreen = fullscreenActive();
 function updateVisible() {
   const active = foreground && !document.hidden;
   if (active === visible) return;

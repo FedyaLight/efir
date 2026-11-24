@@ -34,7 +34,14 @@ async function route() {
 
 window.addEventListener('hashchange', route);
 window.addEventListener('pageshow', e => { if (e.persisted) route(); });
-window.addEventListener('pagehide', () => { ++routeVersion; current?.destroy(); current = null; });
+function closePage() {
+  ++routeVersion;
+  const closing = current;
+  current = null;
+  closing?.destroy();
+}
+window.addEventListener('pagehide', closePage);
+if (platform.native) (window.efirNative ||= {}).onClose = closePage;
 
 // Home
 

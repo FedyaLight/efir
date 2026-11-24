@@ -15,6 +15,7 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
     private var originForPage: String
     private var addresses: [LANAddress]
     private var lastVisible: Bool?
+    private var closing = false
 
     init(code: String, port: Int, origin: String, addresses: [LANAddress], speech: NativeSpeech) {
         self.port = port
@@ -97,7 +98,7 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
     func userContentController(
         _ controller: WKUserContentController, didReceive message: WKScriptMessage
     ) {
-        guard message.frameInfo.isMainFrame,
+        guard !closing, message.frameInfo.isMainFrame,
             message.frameInfo.securityOrigin.host == "localhost",
             message.frameInfo.securityOrigin.port == port,
             let body = message.body as? [String: Any], let action = body["action"] as? String
@@ -116,9 +117,21 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
         }
     }
 
-    func windowWillClose(_ notification: Notification) {
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        requestClose()
+        return false
+    }
+
+    func requestClose() {
+        guard !closing else { return }
+        closing = true
         speech.stop(owner: webView)
-        webView.evaluateJavaScript("window.dispatchEvent(new Event('pagehide'))")
+        webView.evaluateJavaScript("window.efirNative?.onClose?.()") { [self] _, _ in
+            window.close()
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "efir")
         webView.stopLoading()
         onClose?()
@@ -140,7 +153,7 @@ final class RoleWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler, WKNa
     private func updateVisibility() {
         let visible =
             window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
-        guard lastVisible != visible else { return }
+        guard !closing, lastVisible != visible else { return }
         lastVisible = visible
         webView.evaluateJavaScript("window.efirNative?.onVisible?.(\(visible ? "true" : "false"))")
     }
