@@ -171,10 +171,11 @@ async fn connection(socket: WebSocket, hub: Arc<Hub>, external: bool) {
                 tokio::time::timeout(Duration::from_secs(5), output.send(message)).await,
                 Ok(Ok(()))
             ) {
-                break;
+                // Closing the sink can flush the same blocked buffer. Drop
+                // the writer so the connection also releases its read half.
+                return;
             }
         }
-        let _ = output.close().await;
     });
     loop {
         tokio::select! {
@@ -202,6 +203,17 @@ async fn connection(socket: WebSocket, hub: Arc<Hub>, external: bool) {
     hub.remove(id);
     writer.abort();
 }
+fn byte_range(range: &str, size: u64) -> Option<(u64, u64)> {
+    let last = size.checked_sub(1)?;
+    let (left, right) = range.split_once('-')?;
+    let (start, end) = match (left, right) {
+        ("", suffix) => (size.saturating_sub(suffix.parse().ok()?), last),
+        (start, "") => (start.parse().ok()?, last),
+        (start, end) => (start.parse().ok()?, last.min(end.parse().ok()?)),
+    };
+    (start <= end).then_some((start, end))
+}
+
 fn response(status: StatusCode, mime: &str, length: usize, body: Body, cache: &str) -> Response {
     Response::builder()
         .status(status)
@@ -303,40 +315,25 @@ async fn site(State(site): State<Site>, method: Method, uri: Uri, headers: Heade
             .body(Body::empty())
             .unwrap();
     }
-    let mut start = 0;
-    let mut end = meta.len().saturating_sub(1);
-    let mut partial = false;
-    if let Some(range) = headers
+    let size = meta.len();
+    let range = headers
         .get(header::RANGE)
         .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("bytes="))
-    {
-        let values = range.split_once('-');
-        match values {
-            Some((a, b)) if !a.is_empty() => {
-                start = a.parse().unwrap_or(u64::MAX);
-                end = if b.is_empty() {
-                    end
-                } else {
-                    b.parse().unwrap_or(0).min(end)
-                };
-                partial = true;
-            }
-            Some(("", b)) => {
-                start = meta.len().saturating_sub(b.parse().unwrap_or(0));
-                partial = true;
-            }
-            _ => start = u64::MAX,
-        }
-        if meta.len() == 0 || start > end {
+        .and_then(|h| h.strip_prefix("bytes="));
+    let partial = range.is_some();
+    let (start, end) = if let Some(range) = range {
+        let Some(bounds) = byte_range(range, size) else {
             return Response::builder()
                 .status(StatusCode::RANGE_NOT_SATISFIABLE)
-                .header(header::CONTENT_RANGE, format!("bytes */{}", meta.len()))
+                .header(header::CONTENT_RANGE, format!("bytes */{size}"))
                 .body(Body::empty())
                 .unwrap();
-        }
-    }
-    let len = if meta.len() == 0 { 0 } else { end - start + 1 };
+        };
+        bounds
+    } else {
+        (0, size.saturating_sub(1))
+    };
+    let len = if size == 0 { 0 } else { end - start + 1 };
     let body = if method == Method::HEAD {
         Body::empty()
     } else {

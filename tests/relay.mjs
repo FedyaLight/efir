@@ -39,9 +39,17 @@ for (const [range, start, end] of [
   assert.equal(partial.headers.get('content-range'), `bytes ${start}-${end}/${size}`);
   assert.deepEqual(new Uint8Array(await partial.arrayBuffer()), bytes.slice(start, end + 1));
 }
-const invalid = await fetch(font.url, { headers: { Range: `bytes=${size}-` } });
-assert.equal(invalid.status, 416);
-assert.equal(invalid.headers.get('content-range'), `bytes */${size}`);
+for (const range of [`bytes=${size}-`, 'bytes=0-abc', 'bytes=0-10, 20-30']) {
+  const invalid = await fetch(font.url, { headers: { Range: range } });
+  assert.equal(invalid.status, 416, range);
+  assert.equal(invalid.headers.get('content-range'), `bytes */${size}`);
+  assert.equal((await invalid.arrayBuffer()).byteLength, 0);
+}
+const partialHead = await fetch(font.url, { method: 'HEAD', headers: { Range: 'bytes=0-31' } });
+assert.equal(partialHead.status, 206);
+assert.equal(partialHead.headers.get('content-length'), '32');
+assert.equal(partialHead.headers.get('content-range'), `bytes 0-31/${size}`);
+assert.equal((await partialHead.arrayBuffer()).byteLength, 0);
 const ignoredRange = await fetch(font.url, { headers: { Range: 'items=0-31' } });
 assert.equal(ignoredRange.status, 200, 'unknown range units are ignored');
 await ignoredRange.body.cancel();
@@ -75,4 +83,31 @@ try {
   await until(() => a.queue.length === 1);
   assert.equal(a.queue.shift(), large);
 } finally { for (const c of [a, b, other]) c.ws.close(); }
-console.log('PASS HTTP/MIME/cache/HEAD/Range, one shared local session, exact relay, no sender echo, ping/pong, fragmented UTF-8 message');
+
+const reader = await client('TST42');
+const oversized = await client('TST42');
+const slots = [reader];
+try {
+  oversized.ws.send(new Uint8Array(16 * 1024 * 1024 + 1));
+  await until(() => oversized.ws.readyState === WebSocket.CLOSED);
+  assert.deepEqual(reader.queue, [], 'oversized messages never reach other clients');
+  for (let i = 1; i < 32; i++) slots.push(await client('TST42'));
+  const surplus = await client('TST42').catch(() => null);
+  if (surplus) {
+    try {
+      await until(() => surplus.ws.readyState === WebSocket.CLOSED);
+    } finally { surplus.ws.close(); }
+  }
+  const released = slots.pop();
+  released.ws.close();
+  await until(() => released.ws.readyState === WebSocket.CLOSED);
+  const replacement = await client('TST42');
+  slots.push(replacement);
+  replacement.ws.send('available after close');
+  await until(() => reader.queue.length > 0);
+  assert.deepEqual(reader.queue, ['available after close']);
+} finally {
+  oversized.ws.close();
+  for (const slot of slots) slot.ws.close();
+}
+console.log('PASS HTTP/MIME/cache/HEAD/Range, one shared local session, exact relay, ping/pong, UTF-8, message size and connection limits');
