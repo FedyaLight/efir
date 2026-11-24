@@ -51,9 +51,9 @@ class AndroidFlowTest {
         return result
     }
 
-    private fun until(label: String, check: () -> Boolean) {
-        val end = System.currentTimeMillis() + 15000
-        while (System.currentTimeMillis() < end) {
+    private fun until(label: String, timeoutMs: Long = 15_000, check: () -> Boolean) {
+        val end = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < end) {
             if (check()) return
             Thread.sleep(80)
         }
@@ -183,6 +183,7 @@ class AndroidFlowTest {
                     "!!document.querySelector('.prompter.has-ctl.has-script') && document.querySelector('.text').textContent.includes('quick brown fox')",
                 ) == true
             }
+            val screenId = js(prompter, "new URL(location.href).searchParams.get('screen')") as String
             assertEquals(
                 "native wake does not create a video",
                 0,
@@ -244,6 +245,9 @@ class AndroidFlowTest {
             }
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             until("back to editor") { views(scenario).size == 1 }
+            until("controller receives leave before heartbeat expiry", 3_000) {
+                js(controller, "!document.querySelector('.ctl').classList.contains('has-prompter')") == true
+            }
             scenario.onActivity {
                 assertEquals(View.VISIBLE, controller.visibility)
                 assertEquals(
@@ -257,6 +261,20 @@ class AndroidFlowTest {
                     "document.querySelector('.ed-text').value.includes('quick brown fox')",
                 ) == true
             )
+            js(
+                controller,
+                "[...document.querySelectorAll('[data-a=read]')].find(el=>el.getBoundingClientRect().width>=44).click(); true",
+            )
+            until("reading view reopens") { views(scenario).size == 2 }
+            val reopened = views(scenario).last()
+            until("reading screen restores its mirror profile") {
+                js(
+                    reopened,
+                    "!!document.querySelector('.prompter.has-ctl.has-script') && new DOMMatrix(getComputedStyle(document.querySelector('.stage-inner')).transform).a < 0",
+                ) == true
+            }
+            assertEquals(screenId, js(reopened, "new URL(location.href).searchParams.get('screen')"))
+
         }
     }
 

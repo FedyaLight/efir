@@ -25,6 +25,8 @@ import com.journeyapps.barcodescanner.ScanOptions
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URI
+import java.util.UUID
+import java.util.WeakHashMap
 import java.util.concurrent.Executors
 import org.json.JSONObject
 
@@ -43,16 +45,26 @@ class MainActivity : ComponentActivity() {
     private var requestedSharing = false
     private var controller: WebView? = null
     private var prompter: WebView? = null
+    private var closingReader = false
+    private var reopenReader = false
+    private var lastNetwork: String? = null
+    private val viewSignals = WeakHashMap<WebView, MutableMap<String, Boolean>>()
     private var resumed = false
     private var fullscreen = false
     private var awakeRequested = false
     private var connecting = false
     private var generation = 0
     private var pendingLanguage = "ru-RU"
+    private var voiceSession: String? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var exportBytes: ByteArray? = null
     private var exportType = "text/plain"
     private val prefs by lazy { getSharedPreferences("efir", MODE_PRIVATE) }
+    private val remoteScreenId by lazy {
+        prefs.getString("remoteScreenId", null) ?: UUID.randomUUID().toString().also {
+            prefs.edit().putString("remoteScreenId", it).apply()
+        }
+    }
 
     private val scan =
         registerForActivityResult(ScanContract()) { result -> result.contents?.let { connect(it) } }
@@ -101,7 +113,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
-        strings = Localization(this)
+        strings = Localization.get(this)
         speech = NativeSpeech(this, strings, ::voiceEvent)
         bonjour =
             Bonjour(this) { name, url ->
@@ -304,15 +316,19 @@ class MainActivity : ComponentActivity() {
             container.addView(controller)
             controller!!.loadUrl("http://localhost:${host.port}/#/c/LOCAL")
         }
-        listOfNotNull(controller, prompter).forEach { view ->
-            call(
-                view,
-                "info => { if (!window.efirNative) return; Object.assign(window.efirNative,info); window.dispatchEvent(new Event('efirnetwork')); }",
-                JSONObject()
-                    .put("publicOrigin", host.origin())
-                    .put("addresses", host.addresses())
-                    .toString(),
-            )
+        val payload = JSONObject()
+            .put("publicOrigin", host.origin())
+            .put("addresses", host.addresses())
+            .toString()
+        if (payload != lastNetwork) {
+            lastNetwork = payload
+            controller?.let { view ->
+                call(
+                    view,
+                    "info => { if (!window.efirNative) return; Object.assign(window.efirNative,info); window.dispatchEvent(new Event('efirnetwork')); }",
+                    payload,
+                )
+            }
         }
     }
 
@@ -377,7 +393,7 @@ class MainActivity : ComponentActivity() {
                         prompter = webView(origin, "prompter") ?: return@onSuccess
                         container.removeAllViews()
                         container.addView(prompter)
-                        prompter!!.loadUrl("$origin/#/p/LOCAL")
+                        prompter!!.loadUrl("$origin/?screen=$remoteScreenId#/p/LOCAL")
                         awakeRequested = true
                         updateScreen()
                     }
@@ -452,7 +468,7 @@ class MainActivity : ComponentActivity() {
                                     .put("addresses", service?.addresses() ?: org.json.JSONArray())
                                     .toString()
                             )
-                        else handle(view, role, it)
+                        else if (view === controller || view === prompter) handle(view, role, it)
                     }
         }
         WebViewCompat.addDocumentStartJavaScript(
@@ -468,6 +484,8 @@ class MainActivity : ComponentActivity() {
                 ): Boolean = !request.url.toString().startsWith("$origin/")
 
                 override fun onPageFinished(web: WebView, url: String) {
+                    if (web !== controller && web !== prompter) return
+                    viewSignals.remove(web)
                     updateScreen()
                     visible(
                         web,
@@ -540,6 +558,7 @@ class MainActivity : ComponentActivity() {
             "screenAwake" -> {
                 if (prompter === view) {
                     awakeRequested = message.optBoolean("active")
+                    viewSignals[view]?.remove("onAwake")
                     updateScreen()
                 }
             }
@@ -550,29 +569,17 @@ class MainActivity : ComponentActivity() {
             }
             "selectAddress" ->
                 if (role == "controller") service?.selectAddress(message.optString("address"))
-            "showPrompter" ->
-                if (role == "controller" && prompter == null && service != null) {
-                    val origin = "http://localhost:${service!!.port}"
-                    val reading = webView(origin, "prompter") ?: return
-                    prompter = reading
-                    visible(view, false)
-                    view.visibility = View.GONE
-                    container.addView(reading)
-                    reading.loadUrl("$origin/#/p/LOCAL")
-                    awakeRequested = true
-                    fullscreen = true
-                    updateScreen()
-                }
+            "showPrompter" -> if (role == "controller") showLocalReader(view)
             "voiceStop" ->
                 if (role == "controller") {
                     speech.stop()
-                    voiceEvent("off", null, false)
                 }
             "voiceModel" ->
                 if (role == "controller") speech.download(message.optString("lang", "ru-RU"))
             "voiceStart" ->
                 if (role == "controller" && resumed) {
                     pendingLanguage = message.optString("lang", "ru-RU")
+                    voiceSession = message.optString("session").takeIf { it.isNotEmpty() }
                     if (
                         !speech.supported ||
                             checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
@@ -595,13 +602,38 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun showLocalReader(view: WebView) {
+        if (view !== controller || prompter != null) return
+        if (closingReader) {
+            reopenReader = true
+            return
+        }
+        val port = service?.port ?: return
+        if (port == 0) return
+        val origin = "http://localhost:$port"
+        val reading = webView(origin, "prompter") ?: return
+        prompter = reading
+        visible(view, false)
+        view.visibility = View.GONE
+        container.addView(reading)
+        reading.loadUrl("$origin/?screen=android-local#/p/LOCAL")
+        awakeRequested = true
+        fullscreen = true
+        updateScreen()
+    }
+
     private fun back() {
         if (prompter != null && controller != null) {
             val old = prompter!!
             prompter = null
-            visible(old, false)
-            container.removeView(old)
-            old.destroy()
+            closingReader = true
+            closeView(old) {
+                closingReader = false
+                if (reopenReader) {
+                    reopenReader = false
+                    controller?.let(::showLocalReader)
+                }
+            }
             controller!!.visibility = View.VISIBLE
             visible(controller!!, resumed)
             fullscreen = false
@@ -635,17 +667,25 @@ class MainActivity : ComponentActivity() {
         view.evaluateJavascript("(($function))($json)", null)
     }
 
-    private fun visible(view: WebView, active: Boolean) =
-        call(view, "active => window.efirNative?.onVisible?.(active)", active.toString())
+    private fun signal(view: WebView, callback: String, active: Boolean) {
+        if (viewSignals.getOrPut(view) { mutableMapOf() }.put(callback, active) != active) {
+            call(view, "active => window.efirNative?.$callback?.(active)", active.toString())
+        }
+    }
+
+    private fun visible(view: WebView, active: Boolean) = signal(view, "onVisible", active)
 
     private fun voiceEvent(kind: String, text: String?, final: Boolean) {
+        val session = voiceSession
+        val source = controller
         main.post {
-            controller?.let { view ->
+            if (source !== controller) return@post
+            source?.let { view ->
                 if (kind == "transcript")
                     call(
                         view,
-                        "v => window.efirNative?.onTranscript?.(v.text,v.final)",
-                        JSONObject().put("text", text).put("final", final).toString(),
+                        "v => window.efirNative?.onTranscript?.(v.text,v.final,v.session)",
+                        JSONObject().put("text", text).put("final", final).put("session", session).toString(),
                     )
                 else if (kind == "notice")
                     call(
@@ -656,8 +696,8 @@ class MainActivity : ComponentActivity() {
                 else
                     call(
                         view,
-                        "v => window.efirNative?.onState?.(v.state,v.message)",
-                        JSONObject().put("state", kind).put("message", text ?: "").toString(),
+                        "v => window.efirNative?.onState?.(v.state,v.message,v.session)",
+                        JSONObject().put("state", kind).put("message", text ?: "").put("session", session).toString(),
                     )
             }
         }
@@ -675,12 +715,8 @@ class MainActivity : ComponentActivity() {
         } else bars.show(WindowInsetsCompat.Type.systemBars())
         ViewCompat.requestApplyInsets(container)
         prompter?.let {
-            call(it, "active => window.efirNative?.onAwake?.(active)", awake.toString())
-            call(
-                it,
-                "active => window.efirNative?.onFullscreen?.(active)",
-                (fullscreen && resumed).toString(),
-            )
+            signal(it, "onAwake", awake)
+            signal(it, "onFullscreen", fullscreen && resumed)
         }
     }
 
@@ -708,14 +744,35 @@ class MainActivity : ComponentActivity() {
         super.onPause()
     }
 
-    private fun closeViews() {
-        listOfNotNull(controller, prompter).forEach {
-            container.removeView(it)
-            it.destroy()
+    private fun closeView(view: WebView, closed: () -> Unit = {}) {
+        container.removeView(view)
+        viewSignals.remove(view)
+        var done = false
+        val finish = Runnable {
+            if (!done) {
+                done = true
+                view.destroy()
+                closed()
+            }
         }
+        main.postDelayed(finish, 200)
+        view.evaluateJavascript("window.dispatchEvent(new Event('pagehide'))") {
+            if (!done) {
+                main.removeCallbacks(finish)
+                // Give WebView's network process time to send the queued bye.
+                main.postDelayed(finish, 40)
+            }
+        }
+    }
+
+    private fun closeViews() {
+        val views = listOfNotNull(controller, prompter)
         controller = null
         prompter = null
         devices = null
+        lastNetwork = null
+        reopenReader = false
+        views.forEach { closeView(it) }
     }
 
     private fun releaseService() {

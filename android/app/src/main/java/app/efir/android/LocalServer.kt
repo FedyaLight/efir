@@ -1,11 +1,13 @@
 package app.efir.android
 
 import android.content.res.AssetManager
+import android.os.SystemClock
 import fi.iki.elonen.NanoWSD
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -19,26 +21,43 @@ class LocalServer(
     private val changed: (Int) -> Unit,
 ) : NanoWSD(address, port) {
     private val clients = ConcurrentHashMap.newKeySet<Client>()
+    private val lifecycle = Any()
+    private var stopping = false
+    private var watchdog: ScheduledFuture<*>? = null
     private val deadline =
         ScheduledThreadPoolExecutor(1) { task ->
             Thread(task, "Efir socket deadline").apply { isDaemon = true }
-        }.apply { setRemoveOnCancelPolicy(true) }
+        }
     val clientCount
         get() = clients.size
 
     val externalCount
         get() = clients.count { !it.local }
 
-    init {
-        deadline.scheduleAtFixedRate(
-            {
-                val now = android.os.SystemClock.elapsedRealtime()
-                clients.filter { now - it.receivedAt > 45000 }.forEach { it.terminate() }
-            },
-            15,
-            15,
-            TimeUnit.SECONDS,
-        )
+    private fun admit(client: Client): Boolean = synchronized(lifecycle) {
+        if (stopping || clients.size >= 32) return@synchronized false
+        clients.add(client)
+        if (watchdog == null) {
+            watchdog = deadline.scheduleWithFixedDelay(
+                {
+                    val now = SystemClock.elapsedRealtime()
+                    clients.forEach { if (it.expired(now)) it.terminate() }
+                },
+                1,
+                1,
+                TimeUnit.SECONDS,
+            )
+        }
+        true
+    }
+
+    private fun remove(client: Client): Boolean = synchronized(lifecycle) {
+        val removed = clients.remove(client)
+        if (clients.isEmpty()) {
+            watchdog?.cancel(false)
+            watchdog = null
+        }
+        removed
     }
 
     override fun openWebSocket(session: IHTTPSession): WebSocket = Client(session)
@@ -110,7 +129,7 @@ class LocalServer(
         var start = 0L
         var end = size - 1
         var partial = false
-        session.headers["range"]?.removePrefix("bytes=")?.let { range ->
+        session.headers["range"]?.takeIf { it.startsWith("bytes=") }?.removePrefix("bytes=")?.let { range ->
             val split = range.split('-', limit = 2)
             if (split.size != 2) start = Long.MAX_VALUE
             else {
@@ -169,46 +188,53 @@ class LocalServer(
 
     private inner class Client(session: IHTTPSession) : WebSocket(session) {
         val local = session.remoteIpAddress in listOf("127.0.0.1", "::1")
-        @Volatile var receivedAt = android.os.SystemClock.elapsedRealtime()
+        @Volatile private var receivedAt = SystemClock.elapsedRealtime()
+        @Volatile private var writeStartedAt = 0L
         private val pending = ArrayBlockingQueue<WebSocketFrame>(64)
         private val queued = AtomicLong()
-        private var writer: Thread? = null
+        @Volatile private var writer: Thread? = null
 
         override fun onOpen() {
-            if (clients.size >= 32) {
+            val worker = Thread(
+                {
+                    try {
+                        while (isOpen) {
+                            val frame = pending.take()
+                            queued.addAndGet(-frame.binaryPayload.size.toLong())
+                            sendFrame(frame)
+                        }
+                    } catch (_: InterruptedException) {
+                    } catch (_: IOException) {
+                        terminate()
+                    }
+                },
+                "Efir relay",
+            ).apply { isDaemon = true }
+            writer = worker
+            if (!admit(this)) {
                 terminate()
                 return
             }
-            clients.add(this)
             changed(clients.size)
-            writer =
-                Thread(
-                        {
-                            try {
-                                while (isOpen) {
-                                    val frame = pending.take()
-                                    queued.addAndGet(-frame.binaryPayload.size.toLong())
-                                    val timeout =
-                                        deadline.schedule({ terminate() }, 5, TimeUnit.SECONDS)
-                                    try {
-                                        sendFrame(frame)
-                                    } finally {
-                                        timeout.cancel(false)
-                                    }
-                                }
-                            } catch (_: InterruptedException) {} catch (_: IOException) {
-                                terminate()
-                            }
-                        },
-                        "Efir relay",
-                    )
-                    .apply {
-                        isDaemon = true
-                        start()
-                    }
+            worker.start()
+        }
+
+        fun expired(now: Long): Boolean {
+            val started = writeStartedAt
+            return now - receivedAt > 45_000 || (started != 0L && now - started > 5_000)
+        }
+
+        override fun writeFrame(frame: WebSocketFrame) {
+            writeStartedAt = SystemClock.elapsedRealtime()
+            try {
+                super.writeFrame(frame)
+            } finally {
+                writeStartedAt = 0L
+            }
         }
 
         fun enqueue(frame: WebSocketFrame) {
+            if (!isOpen) return
             if (
                 queued.addAndGet(frame.binaryPayload.size.toLong()) > 4 * 1024 * 1024 ||
                     !pending.offer(frame)
@@ -216,8 +242,11 @@ class LocalServer(
                 terminate()
         }
 
+        override fun debugFrameReceived(frame: WebSocketFrame) {
+            receivedAt = SystemClock.elapsedRealtime()
+        }
+
         override fun onMessage(message: WebSocketFrame) {
-            receivedAt = android.os.SystemClock.elapsedRealtime()
             if (
                 message.opCode == WebSocketFrame.OpCode.Text &&
                     message.textPayload.contains("__efir_ping")
@@ -245,6 +274,10 @@ class LocalServer(
                 client.enqueue(WebSocketFrame(message.opCode, true, message.binaryPayload))
         }
 
+        override fun onPing(frame: WebSocketFrame) {
+            enqueue(WebSocketFrame(WebSocketFrame.OpCode.Pong, true, frame.binaryPayload))
+        }
+
         override fun onPong(pong: WebSocketFrame) {}
 
         override fun onException(exception: IOException) {
@@ -258,11 +291,12 @@ class LocalServer(
         ) {
             writer?.interrupt()
             pending.clear()
-            if (clients.remove(this)) changed(clients.size)
+            if (remove(this)) changed(clients.size)
         }
     }
 
     override fun stop() {
+        synchronized(lifecycle) { stopping = true }
         clients.toList().forEach { it.terminate() }
         deadline.shutdownNow()
         super.stop()

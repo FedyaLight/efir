@@ -18,6 +18,7 @@ class NativeSpeech(
     private var language = "ru-RU"
     private var failures = 0
     private var last = ""
+    private var lastState: String? = null
     private val restart = Runnable { if (active) listen() }
     val supported
         get() =
@@ -61,12 +62,14 @@ class NativeSpeech(
         recognizer = device
         device.setRecognitionListener(
             object : RecognitionListener {
+                private fun current() = active && recognizer === device
+
                 override fun onReadyForSpeech(params: Bundle?) {
-                    if (active) emit("listening", null, false)
+                    if (current()) state("listening")
                 }
 
                 override fun onBeginningOfSpeech() {
-                    if (active) emit("hearing", null, false)
+                    if (current()) state("hearing")
                 }
 
                 override fun onRmsChanged(rms: Float) {}
@@ -78,29 +81,28 @@ class NativeSpeech(
                 override fun onEvent(type: Int, params: Bundle?) {}
 
                 override fun onPartialResults(results: Bundle?) {
-                    transcript(results, false)
+                    if (current()) transcript(results, false)
                 }
 
                 override fun onResults(results: Bundle?) {
+                    if (!current()) return
                     transcript(results, true)
-                    if (active) {
-                        failures = 0
-                        main.postDelayed(restart, 150)
-                    }
+                    failures = 0
+                    scheduleRestart(150)
                 }
 
                 override fun onError(error: Int) {
-                    if (!active) return
+                    if (!current()) return
                     if (
                         error == SpeechRecognizer.ERROR_NO_MATCH ||
                             error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
                     ) {
-                        emit("listening", null, false)
-                        main.postDelayed(restart, 300)
+                        state("listening")
+                        scheduleRestart(300)
                         return
                     }
                     if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY && ++failures < 3) {
-                        main.postDelayed(restart, 800)
+                        scheduleRestart(800)
                         return
                     }
                     val denied = error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
@@ -157,6 +159,17 @@ class NativeSpeech(
                     emit("unsupported", it.localizedMessage, false)
                 }
         } else listen()
+    }
+
+    private fun state(value: String) {
+        if (lastState == value) return
+        lastState = value
+        emit(value, null, false)
+    }
+
+    private fun scheduleRestart(delay: Long) {
+        main.removeCallbacks(restart)
+        main.postDelayed(restart, delay)
     }
 
     private fun listen() {
@@ -266,6 +279,7 @@ class NativeSpeech(
 
     fun stop() {
         active = false
+        lastState = null
         main.removeCallbacks(restart)
         runCatching { recognizer?.cancel() }
         runCatching { recognizer?.destroy() }

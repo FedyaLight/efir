@@ -5,9 +5,13 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.*
 import java.io.IOException
 import java.util.concurrent.Executors
+import org.json.JSONArray
+import org.json.JSONObject
 
 class ServerService : Service() {
     inner class LocalBinder : Binder() {
@@ -25,6 +29,7 @@ class ServerService : Service() {
     private var starting = false
     private var generation = 0
     @Volatile private var destroyed = false
+    private var lanAddresses = emptyList<LanAddress>()
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private lateinit var wake: PowerManager.WakeLock
     var sharing = false
@@ -53,13 +58,15 @@ class ServerService : Service() {
         }
     var onChanged: (() -> Unit)? = null
 
-    fun addresses() = networking.json()
+    fun addresses() = JSONArray().apply {
+        lanAddresses.forEach { put(JSONObject().put("name", it.name).put("address", it.address)) }
+    }
 
     fun origin() = "http://${selected.ifEmpty { "localhost" }}:$port"
 
     override fun onCreate() {
         super.onCreate()
-        strings = Localization(this)
+        strings = Localization.get(this)
         networking = NetworkAddresses(this)
         bonjour = Bonjour(this) { _, _ -> }
         wake =
@@ -86,7 +93,13 @@ class ServerService : Service() {
             }
         networkCallback = callback
         getSystemService(ConnectivityManager::class.java)
-            .registerNetworkCallback(android.net.NetworkRequest.Builder().build(), callback)
+            .registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+                    .build(),
+                callback,
+            )
     }
 
     override fun onBind(intent: Intent) = binder
@@ -159,7 +172,6 @@ class ServerService : Service() {
                         port = result!!.listeningPort
                         starting = false
                         updateNetwork(true)
-                        onChanged?.invoke()
                     }
                 }
             } catch (e: Exception) {
@@ -178,7 +190,7 @@ class ServerService : Service() {
     }
 
     fun selectAddress(ip: String) {
-        if (networking.list().none { it.address == ip }) return
+        if (ip == selected || lanAddresses.none { it.address == ip }) return
         selected = ip
         getSharedPreferences("efir", MODE_PRIVATE).edit().putString("address", ip).apply()
         publish()
@@ -191,18 +203,21 @@ class ServerService : Service() {
     }
 
     private fun updateNetwork(force: Boolean = false) {
+        if (destroyed) return
         val list = networking.list()
-        val previous = selected
+        val previous = lanAddresses.firstOrNull { it.address == selected }
+        val changed = list != lanAddresses
+        lanAddresses = list
         if (selected.isEmpty())
             selected = getSharedPreferences("efir", MODE_PRIVATE).getString("address", "") ?: ""
         if (list.none { it.address == selected }) selected = list.firstOrNull()?.address ?: ""
-        if (previous != selected || force) publish()
-        onChanged?.invoke()
+        if (previous != list.firstOrNull { it.address == selected } || force) publish()
+        if (changed || force) onChanged?.invoke()
     }
 
     private fun publish() {
         if (sharing && port > 0) {
-            bonjour.publish(port, networking.list().find { it.address == selected })
+            bonjour.publish(port, lanAddresses.find { it.address == selected })
             getSystemService(NotificationManager::class.java).notify(1, notification())
         }
     }
@@ -216,7 +231,6 @@ class ServerService : Service() {
             if (wake.isHeld) wake.release()
         }
         if (sharing) getSystemService(NotificationManager::class.java).notify(1, notification())
-        onChanged?.invoke()
     }
 
     private fun notification(): Notification {

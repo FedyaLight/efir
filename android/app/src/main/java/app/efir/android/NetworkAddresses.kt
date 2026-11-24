@@ -12,8 +12,6 @@ import android.os.Looper
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.util.ArrayDeque
-import org.json.JSONArray
-import org.json.JSONObject
 
 data class LanAddress(val name: String, val address: String, val network: Network)
 
@@ -44,12 +42,9 @@ class NetworkAddresses(context: Context) {
                     .map { LanAddress(label, it.address.hostAddress!!, network) }
             }
             .distinctBy { it.address }
-            .sortedBy { it.name }
+            .sortedWith(compareBy({ it.name }, { it.address }))
 
-    fun json(): JSONArray =
-        JSONArray().apply {
-            list().forEach { put(JSONObject().put("name", it.name).put("address", it.address)) }
-        }
+
 }
 
 // Use Bonjour only during discovery or active hosting.

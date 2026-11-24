@@ -69,7 +69,9 @@ public abstract class NanoWSD extends NanoHTTPD {
 
         private final InputStream in;
 
-        private OutputStream out;
+        private volatile OutputStream out;
+        private final Object stateLock = new Object();
+        private final byte[] frameBuffer = new byte[1024];
 
         private WebSocketFrame.OpCode continuousOpCode = null;
 
@@ -140,8 +142,12 @@ public abstract class NanoWSD extends NanoHTTPD {
         }
 
         public void close(CloseCode code, String reason, boolean initiatedByRemote) throws IOException {
-            State oldState = this.state;
-            this.state = State.CLOSING;
+            State oldState;
+            synchronized (stateLock) {
+                oldState = this.state;
+                if (oldState == State.CLOSED) return;
+                this.state = State.CLOSING;
+            }
             if (oldState == State.OPEN) {
                 sendFrame(new CloseFrame(code, reason));
             } else {
@@ -150,16 +156,12 @@ public abstract class NanoWSD extends NanoHTTPD {
         }
 
         private void doClose(CloseCode code, String reason, boolean initiatedByRemote) {
-            if (this.state == State.CLOSED) {
-                return;
+            synchronized (stateLock) {
+                if (this.state == State.CLOSED) return;
+                this.state = State.CLOSED;
             }
-            if (this.in != null) {
-                try {
-                    this.in.close();
-                } catch (IOException e) {
-                    NanoWSD.LOG.log(Level.FINE, "close failed", e);
-                }
-            }
+            // Do not acquire the send monitor. Closing the socket output
+            // unblocks a reader or writer currently in socket I/O.
             if (this.out != null) {
                 try {
                     this.out.close();
@@ -167,7 +169,11 @@ public abstract class NanoWSD extends NanoHTTPD {
                     NanoWSD.LOG.log(Level.FINE, "close failed", e);
                 }
             }
-            this.state = State.CLOSED;
+            try {
+                this.in.close();
+            } catch (IOException e) {
+                NanoWSD.LOG.log(Level.FINE, "close failed", e);
+            }
             onClose(code, reason, initiatedByRemote);
         }
 
@@ -228,12 +234,16 @@ public abstract class NanoWSD extends NanoHTTPD {
             }
         }
 
+        protected void onPing(WebSocketFrame frame) throws IOException {
+            sendFrame(new WebSocketFrame(OpCode.Pong, true, frame.getBinaryPayload()));
+        }
+
         private void handleWebsocketFrame(WebSocketFrame frame) throws IOException {
             debugFrameReceived(frame);
             if (frame.getOpCode() == OpCode.Close) {
                 handleCloseFrame(frame);
             } else if (frame.getOpCode() == OpCode.Ping) {
-                sendFrame(new WebSocketFrame(OpCode.Pong, true, frame.getBinaryPayload()));
+                onPing(frame);
             } else if (frame.getOpCode() == OpCode.Pong) {
                 onPong(frame);
             } else if (!frame.isFin() || frame.getOpCode() == OpCode.Continuation) {
@@ -283,8 +293,13 @@ public abstract class NanoWSD extends NanoHTTPD {
         }
 
         public synchronized void sendFrame(WebSocketFrame frame) throws IOException {
+            if (state == State.CLOSED) throw new IOException("WebSocket closed");
             debugFrameSent(frame);
-            frame.write(this.out);
+            writeFrame(frame);
+        }
+
+        protected void writeFrame(WebSocketFrame frame) throws IOException {
+            frame.write(this.out, frameBuffer);
         }
     }
 
@@ -711,41 +726,42 @@ public abstract class NanoWSD extends NanoHTTPD {
         // ------------------------------------------------------------------------
 
         public void write(OutputStream out) throws IOException {
-            byte header = 0;
-            if (this.fin) {
-                header |= 0x80;
-            }
-            header |= this.opCode.getValue() & 0x0F;
-            out.write(header);
+            write(out, new byte[1024]);
+        }
 
-            this._payloadLength = getBinaryPayload().length;
-            if (this._payloadLength <= 125) {
-                out.write(isMasked() ? 0x80 | (byte) this._payloadLength : (byte) this._payloadLength);
-            } else if (this._payloadLength <= 0xFFFF) {
-                out.write(isMasked() ? 0xFE : 126);
-                out.write(this._payloadLength >>> 8);
-                out.write(this._payloadLength);
+        private void write(OutputStream out, byte[] buffer) throws IOException {
+            byte[] payload = getBinaryPayload();
+            int length = payload.length;
+            int count = 0;
+            buffer[count++] = (byte) ((this.fin ? 0x80 : 0) | (this.opCode.getValue() & 0x0F));
+            int mask = isMasked() ? 0x80 : 0;
+            if (length <= 125) {
+                buffer[count++] = (byte) (mask | length);
+            } else if (length <= 0xFFFF) {
+                buffer[count++] = (byte) (mask | 126);
+                buffer[count++] = (byte) (length >>> 8);
+                buffer[count++] = (byte) length;
             } else {
-                out.write(isMasked() ? 0xFF : 127);
-                out.write(this._payloadLength >>> 56 & 0); // integer only
-                                                           // contains
-                // 31 bit
-                out.write(this._payloadLength >>> 48 & 0);
-                out.write(this._payloadLength >>> 40 & 0);
-                out.write(this._payloadLength >>> 32 & 0);
-                out.write(this._payloadLength >>> 24);
-                out.write(this._payloadLength >>> 16);
-                out.write(this._payloadLength >>> 8);
-                out.write(this._payloadLength);
+                buffer[count++] = (byte) (mask | 127);
+                for (int shift = 56; shift >= 0; shift -= 8) {
+                    buffer[count++] = (byte) ((long) length >>> shift);
+                }
             }
 
             if (isMasked()) {
-                out.write(this.maskingKey);
-                for (int i = 0; i < this._payloadLength; i++) {
-                    out.write(getBinaryPayload()[i] ^ this.maskingKey[i % 4]);
+                System.arraycopy(this.maskingKey, 0, buffer, count, 4);
+                count += 4;
+                for (int i = 0; i < length; i++) {
+                    if (count == buffer.length) { out.write(buffer); count = 0; }
+                    buffer[count++] = (byte) (payload[i] ^ this.maskingKey[i % 4]);
                 }
+                out.write(buffer, 0, count);
+            } else if (length <= buffer.length - count) {
+                System.arraycopy(payload, 0, buffer, count, length);
+                out.write(buffer, 0, count + length);
             } else {
-                out.write(getBinaryPayload());
+                out.write(buffer, 0, count);
+                out.write(payload);
             }
             out.flush();
         }
